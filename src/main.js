@@ -459,6 +459,55 @@ function formatHoverValue(value, label) {
   return label && label.includes("%") ? `${formatted}%` : formatted;
 }
 
+function isZeroCategory(category) {
+  return category === 0 || category === "0";
+}
+
+function isPositiveNumericCategory(category) {
+  return typeof category === "number" && category > 0;
+}
+
+function prepareBarChart(chart) {
+  const zeroIndex = chart.categories.findIndex((category) => isZeroCategory(category));
+  const hasPositiveCategory = chart.categories.some((category) => isPositiveNumericCategory(category));
+
+  if (zeroIndex < 0 || !hasPositiveCategory) {
+    return { chart, zeroNote: null };
+  }
+
+  const zeroValues = chart.series.map((series) => series.values[zeroIndex] ?? 0);
+  const hasVisibleZeroMass = zeroValues.some((value) => value > 0);
+  if (!hasVisibleZeroMass) {
+    return { chart, zeroNote: null };
+  }
+
+  const categories = chart.categories.filter((_category, index) => index !== zeroIndex);
+  if (categories.length === 0) {
+    return { chart, zeroNote: null };
+  }
+
+  const series = chart.series.map((seriesEntry) => ({
+    ...seriesEntry,
+    values: seriesEntry.values.filter((_value, index) => index !== zeroIndex),
+  }));
+
+  const zeroNote =
+    chart.series.length === 1
+      ? `Zero outcome hidden: ${formatHoverValue(zeroValues[0], chart.spec.y_label)}`
+      : `Zero outcome hidden: ${chart.series
+          .map((seriesEntry, index) => `${seriesEntry.name} ${formatHoverValue(zeroValues[index], chart.spec.y_label)}`)
+          .join(", ")}`;
+
+  return {
+    chart: {
+      ...chart,
+      categories,
+      series,
+    },
+    zeroNote,
+  };
+}
+
 function createTooltipController(wrapper, tooltip) {
   function positionTooltip(event) {
     const bounds = wrapper.getBoundingClientRect();
@@ -633,17 +682,19 @@ function drawChartAxes(svg, options) {
 
 function renderBarChart(chart) {
   return renderSvgChart((svg, tooltip) => {
+    const wrapper = svg.parentNode;
+    const prepared = prepareBarChart(chart);
+    const displayChart = prepared.chart;
     const left = 76;
     const width = 620;
     const height = 222;
-    const maxSeriesValue = Math.max(...chart.series.flatMap((series) => series.values), 0);
+    const maxSeriesValue = Math.max(...displayChart.series.flatMap((series) => series.values), 0);
     const scale = buildLinearScale(0, maxSeriesValue === 0 ? 1 : maxSeriesValue * 1.08, { includeZero: true });
     const top = 38;
     const bottom = top + height;
-    const allValues = chart.series.flatMap((series) => series.values);
-    const barWidth = width / chart.categories.length;
+    const barWidth = width / displayChart.categories.length;
     const palette = ["#b65c3a", "#3b6c8e", "#6f8a42", "#8a4f7d"];
-    const seriesCount = chart.series.length;
+    const seriesCount = displayChart.series.length;
     const innerBarWidth = Math.max((barWidth - 18) / seriesCount, 6);
     drawChartAxes(svg, {
       left,
@@ -652,12 +703,12 @@ function renderBarChart(chart) {
       height,
       bottom,
       scale,
-      categories: chart.categories,
-      xLabel: chart.spec.x_label,
-      yLabel: chart.spec.y_label,
+      categories: displayChart.categories,
+      xLabel: displayChart.spec.x_label,
+      yLabel: displayChart.spec.y_label,
     });
 
-    chart.series.forEach((series, seriesIndex) => {
+    displayChart.series.forEach((series, seriesIndex) => {
       series.values.forEach((value, index) => {
         const y = valueToY(value, scale, top, height);
         const barHeight = bottom - y;
@@ -668,22 +719,29 @@ function renderBarChart(chart) {
         rect.setAttribute("height", barHeight);
         rect.setAttribute("rx", "6");
         rect.setAttribute("fill", palette[seriesIndex % palette.length]);
-        const category = chart.categories[index];
+        const category = displayChart.categories[index];
         tooltip.attach(rect, [
           series.name,
-          `${chart.spec.x_label}: ${category}`,
-          `${chart.spec.y_label}: ${formatHoverValue(value, chart.spec.y_label)}`,
+          `${displayChart.spec.x_label}: ${category}`,
+          `${displayChart.spec.y_label}: ${formatHoverValue(value, displayChart.spec.y_label)}`,
         ]);
         svg.appendChild(rect);
       });
     });
 
-    if (chart.series.length > 1) {
-      chart.series.forEach((series, index) => {
+    if (displayChart.series.length > 1) {
+      displayChart.series.forEach((series, index) => {
         appendSvgText(svg, left + 8, 24 + index * 18, series.name, "chart-series-label", {
           fill: palette[index % palette.length],
         });
       });
+    }
+
+    if (prepared.zeroNote) {
+      const note = document.createElement("div");
+      note.className = "chart-note";
+      note.textContent = prepared.zeroNote;
+      wrapper.appendChild(note);
     }
   });
 }
