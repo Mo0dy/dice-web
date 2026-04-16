@@ -23,6 +23,7 @@
           <div class="compact-toolbar">
             <div class="toolbar-group">
               <button id="load-sample-button" class="button">Load Sample</button>
+              <button id="close-all-button" class="button">Close All</button>
               <label class="compact-select">
                 <span>Snippets</span>
                 <select id="snippet-select"></select>
@@ -59,15 +60,40 @@
             <div id="chart-output"></div>
           </div>
 
-          <div class="result-grid">
-            <article class="subpanel">
-              <h3>Text</h3>
-              <pre id="text-output"></pre>
-            </article>
-            <article class="subpanel">
-              <h3>JSON</h3>
-              <pre id="json-output"></pre>
-            </article>
+          <div class="output-section">
+            <div class="output-tabs" role="tablist" aria-label="Result output">
+              <button
+                id="text-tab"
+                type="button"
+                class="output-tab"
+                role="tab"
+                aria-controls="text-panel"
+                aria-selected="false"
+                data-output-tab="text"
+              >
+                Text
+              </button>
+              <button
+                id="json-tab"
+                type="button"
+                class="output-tab"
+                role="tab"
+                aria-controls="json-panel"
+                aria-selected="false"
+                data-output-tab="json"
+              >
+                JSON
+              </button>
+            </div>
+
+            <div id="output-panel" class="output-panel" hidden>
+              <article id="text-panel" class="subpanel output-subpanel" role="tabpanel" hidden>
+                <pre id="text-output"></pre>
+              </article>
+              <article id="json-panel" class="subpanel output-subpanel" role="tabpanel" hidden>
+                <pre id="json-output"></pre>
+              </article>
+            </div>
           </div>
         </section>
       </main>

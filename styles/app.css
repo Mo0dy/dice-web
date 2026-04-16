@@ -152,21 +152,52 @@ pre {
   padding-bottom: 0.1rem;
 }
 
-.file-tab {
+.file-tab-shell {
+  display: flex;
+  align-items: stretch;
   flex: 0 0 auto;
   border: 1px solid rgba(31, 29, 26, 0.08);
   background: rgba(236, 226, 208, 0.65);
-  color: var(--ink-muted);
   border-radius: 10px 10px 0 0;
-  padding: 0.45rem 0.7rem;
+  overflow: hidden;
+}
+
+.file-tab-shell.is-active {
+  background: rgba(27, 24, 22, 0.94);
+  border-color: rgba(255, 255, 255, 0.08);
+}
+
+.file-tab {
+  border: 0;
+  background: transparent;
+  color: var(--ink-muted);
+  padding: 0.45rem 0.45rem 0.45rem 0.7rem;
   cursor: pointer;
   font-size: 0.83rem;
 }
 
-.file-tab.is-active {
-  background: rgba(27, 24, 22, 0.94);
+.file-tab.is-active,
+.file-tab-shell.is-active .file-tab {
   color: #f6efe4;
-  border-color: rgba(255, 255, 255, 0.08);
+}
+
+.file-tab-shell.is-active .file-tab-close {
+  color: #f6efe4;
+}
+
+.file-tab-close {
+  border: 0;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  padding: 0.45rem 0.55rem 0.45rem 0.35rem;
+  font-size: 0.92rem;
+  line-height: 1;
+  opacity: 0.62;
+}
+
+.file-tab-close:hover {
+  opacity: 1;
 }
 
 .editor-surface {
@@ -369,6 +400,48 @@ pre {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 0.65rem;
+}
+
+.output-section {
+  display: grid;
+  gap: 0.45rem;
+  align-self: end;
+}
+
+.output-section.is-collapsed {
+  gap: 0;
+}
+
+.output-tabs {
+  display: flex;
+  gap: 0.35rem;
+  justify-content: flex-end;
+}
+
+.output-tab {
+  border: 1px solid rgba(31, 29, 26, 0.1);
+  background: rgba(255, 255, 255, 0.5);
+  color: var(--ink-muted);
+  border-radius: 999px;
+  padding: 0.36rem 0.7rem;
+  cursor: pointer;
+  font-size: 0.76rem;
+}
+
+.output-tab.is-active {
+  background: rgba(31, 29, 26, 0.92);
+  color: #f6efe4;
+  border-color: rgba(255, 255, 255, 0.08);
+}
+
+.output-panel {
+  min-height: 0;
+  max-height: min(16rem, 35vh);
+  overflow: auto;
+}
+
+.output-subpanel {
+  min-height: 0;
 }
 
 .subpanel {

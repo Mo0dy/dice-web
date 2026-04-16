@@ -12,6 +12,7 @@ const EMPTY_SNIPPET = "__empty__";
 const runButton = document.querySelector("#run-button");
 const shareButton = document.querySelector("#share-button");
 const loadSampleButton = document.querySelector("#load-sample-button");
+const closeAllButton = document.querySelector("#close-all-button");
 const snippetSelect = document.querySelector("#snippet-select");
 const saveSnippetButton = document.querySelector("#save-snippet-button");
 const deleteSnippetButton = document.querySelector("#delete-snippet-button");
@@ -27,6 +28,13 @@ const fileTabs = document.querySelector("#file-tabs");
 const sampleDialog = document.querySelector("#sample-dialog");
 const sampleDialogSelect = document.querySelector("#sample-dialog-select");
 const sampleDialogConfirm = document.querySelector("#sample-dialog-confirm");
+const outputSection = document.querySelector(".output-section");
+const outputPanel = document.querySelector("#output-panel");
+const outputTabs = Array.from(document.querySelectorAll("[data-output-tab]"));
+const outputPanels = {
+  text: document.querySelector("#text-panel"),
+  json: document.querySelector("#json-panel"),
+};
 
 let rpcId = 0;
 let samples = [];
@@ -34,6 +42,7 @@ let saveUrlTimer = null;
 let suppressEditorSync = false;
 let fallbackTextarea = null;
 let aceEditor = null;
+let activeOutputTab = null;
 
 let activeWorkspace = createWorkspace({
   files: { "main.dice": loadSavedSource() },
@@ -148,6 +157,11 @@ function resetWorkspace() {
   });
   renderFileTabs();
   setEditorValue(currentSource());
+  persistWorkspace();
+}
+
+function refreshWorkspaceActions() {
+  closeAllButton.disabled = activeWorkspace.openFiles.length <= 1;
 }
 
 function basename(path) {
@@ -241,24 +255,75 @@ function populateSampleDialog() {
 
 function renderFileTabs() {
   const fragment = document.createDocumentFragment();
-  for (const path of activeWorkspace.openFiles) {
+  const canCloseTabs = activeWorkspace.openFiles.length > 1;
+  for (const [index, path] of activeWorkspace.openFiles.entries()) {
+    const tab = document.createElement("div");
+    tab.className = path === activeWorkspace.activeFilePath ? "file-tab-shell is-active" : "file-tab-shell";
+
     const button = document.createElement("button");
     button.type = "button";
     button.className = path === activeWorkspace.activeFilePath ? "file-tab is-active" : "file-tab";
     button.textContent = basename(path);
     button.title = path;
     button.addEventListener("click", () => {
-      if (path === activeWorkspace.activeFilePath) {
-        return;
-      }
-      syncActiveFileFromEditor();
-      activeWorkspace.activeFilePath = path;
-      renderFileTabs();
-      setEditorValue(currentSource());
+      setActiveFile(path);
     });
-    fragment.appendChild(button);
+    tab.appendChild(button);
+
+    if (canCloseTabs) {
+      const closeButton = document.createElement("button");
+      closeButton.type = "button";
+      closeButton.className = "file-tab-close";
+      closeButton.textContent = "×";
+      closeButton.title = `Close ${path}`;
+      closeButton.setAttribute("aria-label", `Close ${basename(path)}`);
+      closeButton.addEventListener("click", (event) => {
+        event.stopPropagation();
+        closeFile(path, index);
+      });
+      tab.appendChild(closeButton);
+    }
+
+    fragment.appendChild(tab);
   }
   fileTabs.replaceChildren(fragment);
+  refreshWorkspaceActions();
+}
+
+function setActiveFile(path) {
+  if (path === activeWorkspace.activeFilePath) {
+    return;
+  }
+  syncActiveFileFromEditor();
+  activeWorkspace.activeFilePath = path;
+  renderFileTabs();
+  setEditorValue(currentSource());
+}
+
+function closeFile(path, index) {
+  if (activeWorkspace.openFiles.length <= 1) {
+    return;
+  }
+
+  syncActiveFileFromEditor();
+
+  const nextOpenFiles = activeWorkspace.openFiles.filter((candidate) => candidate !== path);
+  const nextActivePath =
+    nextOpenFiles[Math.max(index - 1, 0)] ?? nextOpenFiles[index] ?? nextOpenFiles[0] ?? "main.dice";
+
+  if (activeWorkspace.activeFilePath === path) {
+    activeWorkspace.activeFilePath = nextActivePath;
+  }
+  if (activeWorkspace.entryPath === path) {
+    activeWorkspace.entryPath = activeWorkspace.activeFilePath === path ? nextActivePath : activeWorkspace.activeFilePath;
+  }
+
+  delete activeWorkspace.files[path];
+  activeWorkspace.openFiles = nextOpenFiles;
+
+  renderFileTabs();
+  setEditorValue(currentSource());
+  persistWorkspace();
 }
 
 function initializeEditor() {
@@ -591,7 +656,7 @@ function renderCharts(charts) {
   chartOutput.replaceChildren();
   const items = Array.isArray(charts) ? charts : charts ? [charts] : [];
   if (items.length === 0) {
-    chartEmpty.hidden = false;
+    chartEmpty.hidden = true;
     return;
   }
   chartEmpty.hidden = true;
@@ -603,13 +668,32 @@ function renderCharts(charts) {
   });
 }
 
+function setActiveOutputTab(nextTab) {
+  activeOutputTab = nextTab;
+  const isOpen = Boolean(activeOutputTab);
+
+  outputSection.classList.toggle("is-collapsed", !isOpen);
+  outputPanel.hidden = !isOpen;
+
+  outputTabs.forEach((button) => {
+    const isActive = button.dataset.outputTab === activeOutputTab;
+    button.classList.toggle("is-active", isActive);
+    button.setAttribute("aria-selected", String(isActive));
+  });
+
+  Object.entries(outputPanels).forEach(([name, panel]) => {
+    panel.hidden = !isOpen || name !== activeOutputTab;
+  });
+}
+
 function setOutputs(payload) {
   if (!payload.ok) {
     diagnosticPanel.hidden = false;
     diagnosticOutput.textContent = payload.error.formatted;
     textOutput.textContent = "";
     jsonOutput.textContent = "";
-    renderCharts(null);
+    chartOutput.replaceChildren();
+    chartEmpty.hidden = true;
     setResultState("error");
     return;
   }
@@ -627,16 +711,18 @@ async function evaluateSource() {
   setResultState("running");
   try {
     const payload = await callWorker("evaluate", {
-      source: activeWorkspace.files[activeWorkspace.entryPath],
+      source: activeWorkspace.files[activeWorkspace.activeFilePath],
       files: activeWorkspace.files,
       settings: {
-        source_path: activeWorkspace.entryPath,
+        source_path: activeWorkspace.activeFilePath,
       },
     });
     setOutputs(payload);
   } catch (error) {
     diagnosticPanel.hidden = false;
     diagnosticOutput.textContent = error.message;
+    chartOutput.replaceChildren();
+    chartEmpty.hidden = true;
     setResultState("error");
   }
 }
@@ -691,6 +777,10 @@ loadSampleButton.addEventListener("click", () => {
   openSampleDialog();
 });
 
+closeAllButton.addEventListener("click", () => {
+  resetWorkspace();
+});
+
 sampleDialog.addEventListener("close", async () => {
   if (sampleDialog.returnValue === "cancel") {
     return;
@@ -711,6 +801,13 @@ sampleDialog.addEventListener("close", async () => {
 
 sampleDialogConfirm.addEventListener("click", () => {
   sampleDialog.returnValue = "default";
+});
+
+outputTabs.forEach((button) => {
+  button.addEventListener("click", () => {
+    const nextTab = button.dataset.outputTab;
+    setActiveOutputTab(activeOutputTab === nextTab ? null : nextTab);
+  });
 });
 
 saveSnippetButton.addEventListener("click", () => {
@@ -758,9 +855,11 @@ snippetSelect.addEventListener("change", () => {
 });
 
 refreshSnippetSelect();
-setOutputs({ ok: true, result: { type: "string", value: "Run a program to see output." }, render: null });
-textOutput.textContent = "Run a program to see output.";
-jsonOutput.textContent = "{}";
+setActiveOutputTab(null);
+textOutput.textContent = "";
+jsonOutput.textContent = "";
+chartOutput.replaceChildren();
+chartEmpty.hidden = false;
 
 async function boot() {
   try {
