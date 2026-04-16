@@ -559,6 +559,8 @@ function createTooltipController(wrapper, tooltip) {
   };
 }
 
+const CHART_PALETTE = ["#b65c3a", "#3b6c8e", "#6f8a42", "#8a4f7d"];
+
 function niceStep(rawStep) {
   if (!Number.isFinite(rawStep) || rawStep <= 0) {
     return 1;
@@ -693,7 +695,6 @@ function renderBarChart(chart) {
     const top = 38;
     const bottom = top + height;
     const barWidth = width / displayChart.categories.length;
-    const palette = ["#b65c3a", "#3b6c8e", "#6f8a42", "#8a4f7d"];
     const seriesCount = displayChart.series.length;
     const innerBarWidth = Math.max((barWidth - 18) / seriesCount, 6);
     drawChartAxes(svg, {
@@ -718,7 +719,7 @@ function renderBarChart(chart) {
         rect.setAttribute("width", innerBarWidth - 2);
         rect.setAttribute("height", barHeight);
         rect.setAttribute("rx", "6");
-        rect.setAttribute("fill", palette[seriesIndex % palette.length]);
+        rect.setAttribute("fill", CHART_PALETTE[seriesIndex % CHART_PALETTE.length]);
         const category = displayChart.categories[index];
         tooltip.attach(rect, [
           series.name,
@@ -728,14 +729,6 @@ function renderBarChart(chart) {
         svg.appendChild(rect);
       });
     });
-
-    if (displayChart.series.length > 1) {
-      displayChart.series.forEach((series, index) => {
-        appendSvgText(svg, left + 8, 24 + index * 18, series.name, "chart-series-label", {
-          fill: palette[index % palette.length],
-        });
-      });
-    }
 
     if (prepared.zeroNote) {
       const note = document.createElement("div");
@@ -763,7 +756,6 @@ function renderLineChart(chart) {
     const top = 38;
     const bottom = top + height;
     const xStep = chart.categories.length > 1 ? width / (chart.categories.length - 1) : width;
-    const palette = ["#b65c3a", "#3b6c8e", "#6f8a42", "#8a4f7d"];
     drawChartAxes(svg, {
       left,
       top,
@@ -784,7 +776,7 @@ function renderLineChart(chart) {
         circle.setAttribute("cx", x);
         circle.setAttribute("cy", y);
         circle.setAttribute("r", "4");
-        circle.setAttribute("fill", palette[seriesIndex % palette.length]);
+        circle.setAttribute("fill", CHART_PALETTE[seriesIndex % CHART_PALETTE.length]);
         tooltip.attach(circle, [
           series.name,
           `${chart.spec.x_label}: ${chart.categories[index]}`,
@@ -797,18 +789,10 @@ function renderLineChart(chart) {
       const polyline = document.createElementNS("http://www.w3.org/2000/svg", "polyline");
       polyline.setAttribute("points", points.join(" "));
       polyline.setAttribute("fill", "none");
-      polyline.setAttribute("stroke", palette[seriesIndex % palette.length]);
+      polyline.setAttribute("stroke", CHART_PALETTE[seriesIndex % CHART_PALETTE.length]);
       polyline.setAttribute("stroke-width", "3");
       svg.appendChild(polyline);
     });
-
-    if (chart.series.length > 1) {
-      chart.series.forEach((series, seriesIndex) => {
-        appendSvgText(svg, left + 8, 24 + seriesIndex * 18, series.name, "chart-series-label", {
-          fill: palette[seriesIndex % palette.length],
-        });
-      });
-    }
   });
 }
 
@@ -866,23 +850,147 @@ function renderHeatmap(chart) {
   return wrapper;
 }
 
+function chartToggleView(kind) {
+  if (kind === "bar" || kind === "compare_bar") {
+    return "bar";
+  }
+  if (kind === "line" || kind === "compare_line") {
+    return "line";
+  }
+  return null;
+}
+
+function canToggleChart(chart) {
+  return chartToggleView(chart.kind) !== null;
+}
+
+function chartWithView(chart, view) {
+  const isComparison = chart.kind === "compare_bar" || chart.kind === "compare_line";
+  if (view === "bar") {
+    return {
+      ...chart,
+      kind: isComparison ? "compare_bar" : "bar",
+      spec: {
+        ...chart.spec,
+        kind: isComparison ? "compare_bar" : "bar",
+      },
+    };
+  }
+  return {
+    ...chart,
+    kind: isComparison ? "compare_line" : "line",
+    spec: {
+      ...chart.spec,
+      kind: isComparison ? "compare_line" : "line",
+    },
+  };
+}
+
+function buildLegend(chart) {
+  if (!chart.series || chart.series.length === 0) {
+    return null;
+  }
+  const legend = document.createElement("div");
+  legend.className = "chart-legend";
+  chart.series.forEach((series, index) => {
+    const item = document.createElement("div");
+    item.className = "chart-legend-item";
+    const dot = document.createElement("span");
+    dot.className = "chart-legend-dot";
+    dot.style.background = CHART_PALETTE[index % CHART_PALETTE.length];
+    const label = document.createElement("span");
+    label.textContent = series.name;
+    item.append(dot, label);
+    legend.appendChild(item);
+  });
+  return legend;
+}
+
+function renderCartesianChart(chart, plotHost) {
+  const view = chartToggleView(chart.kind);
+  const displayChart = view ? chartWithView(chart, view) : chart;
+  plotHost.replaceChildren(view === "line" ? renderLineChart(displayChart) : renderBarChart(displayChart));
+}
+
 function renderSingleChart(chart, container) {
   container.replaceChildren();
   if (!chart) {
     return false;
   }
+  let modeLabel = null;
   if (chart.title) {
     const heading = document.createElement("div");
     heading.className = "chart-caption";
-    heading.innerHTML = `<span>${chart.title}</span><span>${chart.spec?.kind ?? chart.kind}</span>`;
+    const titleLabel = document.createElement("span");
+    titleLabel.textContent = chart.title;
+    modeLabel = document.createElement("span");
+    modeLabel.textContent = chart.spec?.kind ?? chart.kind;
+    heading.append(titleLabel, modeLabel);
     container.appendChild(heading);
+  }
+  if (canToggleChart(chart)) {
+    const controls = document.createElement("div");
+    controls.className = "chart-controls";
+    const plotHost = document.createElement("div");
+    plotHost.className = "chart-plot-host";
+    const legend = buildLegend(chart);
+    let activeView = chartToggleView(chart.kind);
+
+    const syncButtons = (buttons) => {
+      buttons.forEach((button) => {
+        const isActive = button.dataset.view === activeView;
+        button.classList.toggle("is-active", isActive);
+        button.setAttribute("aria-pressed", String(isActive));
+      });
+    };
+
+    const buttons = ["bar", "line"].map((view) => {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "chart-toggle";
+      button.dataset.view = view;
+      button.textContent = view === "bar" ? "Bar" : "Line";
+      button.addEventListener("click", () => {
+        if (activeView === view) {
+          return;
+        }
+        activeView = view;
+        renderCartesianChart(chartWithView(chart, activeView), plotHost);
+        if (modeLabel) {
+          modeLabel.textContent = chartWithView(chart, activeView).kind;
+        }
+        syncButtons(buttons);
+      });
+      controls.appendChild(button);
+      return button;
+    });
+
+    syncButtons(buttons);
+    renderCartesianChart(chartWithView(chart, activeView), plotHost);
+    if (modeLabel) {
+      modeLabel.textContent = chartWithView(chart, activeView).kind;
+    }
+    container.appendChild(controls);
+    container.appendChild(plotHost);
+    if (legend) {
+      container.appendChild(legend);
+    }
+    return true;
   }
   if (chart.kind === "bar" || chart.kind === "compare_bar") {
     container.appendChild(renderBarChart(chart));
+    const legend = buildLegend(chart);
+    if (legend) {
+      container.appendChild(legend);
+    }
     return true;
   }
   if (chart.kind === "line" || chart.kind === "compare_line") {
     container.appendChild(renderLineChart(chart));
+    const legend = buildLegend(chart);
+    if (legend) {
+      container.appendChild(legend);
+    }
     return true;
   }
   if (chart.kind === "heatmap_distribution" || chart.kind === "heatmap_scalar") {

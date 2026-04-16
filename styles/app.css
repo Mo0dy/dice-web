@@ -338,10 +338,36 @@ pre {
   font-size: 0.78rem;
 }
 
+.chart-controls {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.35rem;
+}
+
+.chart-toggle {
+  border: 1px solid rgba(31, 29, 26, 0.1);
+  background: rgba(255, 255, 255, 0.5);
+  color: var(--ink-muted);
+  border-radius: 999px;
+  padding: 0.3rem 0.7rem;
+  cursor: pointer;
+  font-size: 0.74rem;
+}
+
+.chart-toggle.is-active {
+  background: rgba(31, 29, 26, 0.92);
+  color: #f6efe4;
+  border-color: rgba(255, 255, 255, 0.08);
+}
+
 .chart-note {
   color: var(--ink-muted);
   font-size: 0.76rem;
   line-height: 1.4;
+}
+
+.chart-plot-host {
+  display: grid;
 }
 
 .chart-svg {
@@ -392,6 +418,28 @@ pre {
 
 .chart-point {
   fill: var(--accent-strong);
+}
+
+.chart-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.55rem 0.9rem;
+  align-items: center;
+  color: var(--ink-muted);
+  font-size: 0.76rem;
+}
+
+.chart-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.chart-legend-dot {
+  width: 0.6rem;
+  height: 0.6rem;
+  border-radius: 999px;
+  flex: 0 0 auto;
 }
 
 .heatmap {
