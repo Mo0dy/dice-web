@@ -15,6 +15,8 @@ class WebBridgeTest(unittest.TestCase):
     def test_evaluate_returns_structured_distribution(self):
         payload = webbridge.evaluate("d6", settings={"roundlevel": 4})
         self.assertTrue(payload["ok"])
+        self.assertIn("1: 16.6667%", payload["text"])
+        self.assertIn("(E): 3.5000", payload["text"])
         self.assertEqual(payload["result"]["type"], "distributions")
         self.assertEqual(payload["result"]["axes"], [])
         probabilities = [entry["probability"] for entry in payload["result"]["cells"][0]["distribution"]]
@@ -100,6 +102,7 @@ class WebBridgeTest(unittest.TestCase):
             settings={"source_path": sample["source_path"]},
         )
         self.assertTrue(payload["ok"], payload.get("error"))
+        self.assertEqual(payload["text"], "Rendered 6 chart(s).")
         self.assertEqual(len(payload["renders"]), 6)
         self.assertEqual(payload["renders"][0]["title"], "Single ability score distribution")
 

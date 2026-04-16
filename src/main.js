@@ -384,34 +384,6 @@ function initializeEditor() {
   setEditorValue(currentSource());
 }
 
-function formatProbability(value) {
-  return `${value.toFixed(2)}%`;
-}
-
-function formatDistributionTable(distribution) {
-  const header = ["Outcome", "Probability"];
-  const rows = distribution.map((entry) => [String(entry.outcome), formatProbability(entry.probability * 100)]);
-  const widths = header.map((title, index) => Math.max(title.length, ...rows.map((row) => row[index].length)));
-  const formatRow = (row) => row.map((value, index) => value.padEnd(widths[index])).join("  ");
-  return [formatRow(header), formatRow(widths.map((width) => "-".repeat(width))), ...rows.map(formatRow)].join("\n");
-}
-
-function summarizeResult(result) {
-  if (result.type === "scalar") {
-    return String(result.value);
-  }
-  if (result.type === "string") {
-    return result.value;
-  }
-  if (result.type === "distribution") {
-    return formatDistributionTable(result.distribution);
-  }
-  if (result.type === "distributions" && result.axes.length === 0) {
-    return formatDistributionTable(result.cells[0].distribution);
-  }
-  return JSON.stringify(result, null, 2);
-}
-
 function interpolateColor(value, maxValue) {
   const ratio = maxValue <= 0 ? 0 : value / maxValue;
   const low = { r: 239, g: 227, b: 193 };
@@ -627,10 +599,8 @@ function renderHeatmap(chart) {
 function renderSingleChart(chart, container) {
   container.replaceChildren();
   if (!chart) {
-    chartEmpty.hidden = false;
-    return;
+    return false;
   }
-  chartEmpty.hidden = true;
   if (chart.title) {
     const heading = document.createElement("div");
     heading.className = "chart-caption";
@@ -639,17 +609,21 @@ function renderSingleChart(chart, container) {
   }
   if (chart.kind === "bar" || chart.kind === "compare_bar") {
     container.appendChild(renderBarChart(chart));
-    return;
+    return true;
   }
   if (chart.kind === "line" || chart.kind === "compare_line") {
     container.appendChild(renderLineChart(chart));
-    return;
+    return true;
   }
   if (chart.kind === "heatmap_distribution" || chart.kind === "heatmap_scalar") {
     container.appendChild(renderHeatmap(chart));
-    return;
+    return true;
   }
-  chartEmpty.hidden = false;
+  const unsupported = document.createElement("div");
+  unsupported.className = "chart-caption";
+  unsupported.innerHTML = `<span>Unsupported chart payload</span><span>${chart.kind ?? "unknown"}</span>`;
+  container.appendChild(unsupported);
+  return false;
 }
 
 function renderCharts(charts) {
@@ -660,12 +634,14 @@ function renderCharts(charts) {
     return;
   }
   chartEmpty.hidden = true;
+  let renderedAny = false;
   items.forEach((chart) => {
     const container = document.createElement("div");
     container.className = "chart-stack";
     chartOutput.appendChild(container);
-    renderSingleChart(chart, container);
+    renderedAny = renderSingleChart(chart, container) || renderedAny;
   });
+  chartEmpty.hidden = renderedAny || items.length > 0;
 }
 
 function setActiveOutputTab(nextTab) {
@@ -700,10 +676,14 @@ function setOutputs(payload) {
 
   diagnosticPanel.hidden = true;
   diagnosticOutput.textContent = "";
-  textOutput.textContent = summarizeResult(payload.result);
+  textOutput.textContent = payload.text ?? "";
   jsonOutput.textContent = JSON.stringify(payload.result, null, 2);
   setResultState(payload.result.type);
-  renderCharts(payload.renders && payload.renders.length ? payload.renders : payload.render);
+  const charts = payload.renders && payload.renders.length ? payload.renders : payload.render;
+  renderCharts(charts);
+  if (charts) {
+    chartEmpty.hidden = true;
+  }
 }
 
 async function evaluateSource() {

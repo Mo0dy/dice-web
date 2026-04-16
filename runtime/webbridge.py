@@ -62,6 +62,185 @@ def _ordered_labels(values):
     return list(sorted(values, key=sort_key))
 
 
+def _is_deterministic_distribution(distrib):
+    items = list(distrib.items())
+    return len(items) == 1 and items[0][1] == 1
+
+
+def _deterministic_outcome(distrib):
+    return next(iter(distrib.keys()))
+
+
+def _all_scalar(result):
+    return all(_is_deterministic_distribution(distrib) for distrib in result.cells.values())
+
+
+def _format_rounded_numeric(value, roundlevel=0):
+    if isinstance(value, int):
+        return str(value)
+    if isinstance(value, float):
+        if not roundlevel:
+            return str(value)
+        rounded = _round_numeric(value, roundlevel)
+        if rounded.is_integer():
+            return str(int(rounded))
+        return f"{rounded:.{roundlevel}f}"
+    return str(value)
+
+
+def _format_scalar(value, roundlevel=0):
+    if _is_numeric(value):
+        return _format_rounded_numeric(value, roundlevel)
+    return str(value)
+
+
+def _format_label(value, roundlevel=0):
+    if _is_numeric(value):
+        return _format_rounded_numeric(value, roundlevel)
+    return str(value)
+
+
+def _format_probability(value, roundlevel=0, probability_mode="percent"):
+    if probability_mode == "percent":
+        return "{}%".format(_format_rounded_numeric(value * 100, roundlevel))
+    return _format_rounded_numeric(value, roundlevel)
+
+
+def _axis_header(name):
+    return f"/{name}" if name else ""
+
+
+def _corner_label(row_name, col_name):
+    return "{}/{}".format(row_name or "", col_name or "")
+
+
+def _string_table(rows):
+    if not rows:
+        return ""
+    widths = [max(len(row[index]) for row in rows) for index in range(len(rows[0]))]
+    return "\n".join(
+        "  ".join(cell.rjust(widths[index]) for index, cell in enumerate(row))
+        for row in rows
+    )
+
+
+def _format_key_value_lines(entries):
+    if not entries:
+        return ""
+    label_width = max(len(label) for label, _ in entries)
+    return "\n".join("{}: {}".format(label.rjust(label_width), value) for label, value in entries)
+
+
+def _distribution_mean(distrib):
+    outcomes = list(distrib.keys())
+    if not outcomes or not all(_is_numeric(outcome) for outcome in outcomes):
+        return None
+    return distrib.average()
+
+
+def _format_unswept_distribution(distrib, roundlevel=0, probability_mode="percent"):
+    if _is_deterministic_distribution(distrib):
+        return _format_scalar(_deterministic_outcome(distrib), roundlevel)
+    entries = [
+        (
+            _format_label(outcome, roundlevel),
+            _format_probability(distrib[outcome], roundlevel, probability_mode=probability_mode),
+        )
+        for outcome in _ordered_labels(distrib.keys())
+    ]
+    mean = _distribution_mean(distrib)
+    if mean is not None:
+        entries.append(("(E)", _format_scalar(mean, roundlevel)))
+    return _format_key_value_lines(entries)
+
+
+def _format_scalar_sweep(result, roundlevel=0):
+    axis = result.axes[0]
+    lines = []
+    if axis.name:
+        lines.append(_axis_header(axis.name))
+    lines.append(
+        _format_key_value_lines(
+            [
+                (
+                    _format_label(value, roundlevel),
+                    _format_scalar(_deterministic_outcome(result.cells[(value,)]), roundlevel),
+                )
+                for value in axis.values
+            ]
+        )
+    )
+    return "\n".join(lines)
+
+
+def _format_distribution_sweep(result, roundlevel=0, probability_mode="percent"):
+    axis = result.axes[0]
+    outcomes = []
+    seen = set()
+    means = []
+    for axis_value in axis.values:
+        distrib = result.cells[(axis_value,)]
+        means.append(_distribution_mean(distrib))
+        for outcome in _ordered_labels(result.cells[(axis_value,)].keys()):
+            if outcome not in seen:
+                outcomes.append(outcome)
+                seen.add(outcome)
+
+    rows = [[_axis_header(axis.name)] + [_format_label(value, roundlevel) for value in axis.values]]
+    for outcome in outcomes:
+        rows.append(
+            [_format_label(outcome, roundlevel)]
+            + [
+                _format_probability(
+                    result.cells[(value,)][outcome],
+                    roundlevel,
+                    probability_mode=probability_mode,
+                )
+                for value in axis.values
+            ]
+        )
+    if all(mean is not None for mean in means):
+        rows.append(["(E)"] + [_format_scalar(mean, roundlevel) for mean in means])
+    return _string_table(rows)
+
+
+def _format_scalar_heatmap(result, roundlevel=0):
+    row_axis, col_axis = result.axes
+    rows = [[_corner_label(row_axis.name, col_axis.name)] + [_format_label(value, roundlevel) for value in col_axis.values]]
+    for row_value in row_axis.values:
+        row = [_format_label(row_value, roundlevel)]
+        for col_value in col_axis.values:
+            scalar = _deterministic_outcome(result.cells[(row_value, col_value)])
+            row.append(_format_scalar(scalar, roundlevel))
+        rows.append(row)
+    return _string_table(rows)
+
+
+def _format_result_text(result, roundlevel=0, probability_mode="percent"):
+    if isinstance(result, Distributions):
+        if result.is_unswept() and isinstance(result.only_distribution(), FiniteMeasure) and not isinstance(result.only_distribution(), Distribution):
+            return str(result.only_distribution())
+        if result.is_unswept():
+            return _format_unswept_distribution(
+                result.only_distribution(),
+                roundlevel,
+                probability_mode=probability_mode,
+            )
+        if len(result.axes) == 1:
+            if _all_scalar(result):
+                return _format_scalar_sweep(result, roundlevel)
+            return _format_distribution_sweep(
+                result,
+                roundlevel,
+                probability_mode=probability_mode,
+            )
+        if len(result.axes) == 2 and _all_scalar(result):
+            return _format_scalar_heatmap(result, roundlevel)
+    if isinstance(result, float) and roundlevel:
+        return _format_scalar(result, roundlevel)
+    return str(result)
+
+
 def _serialize_distribution(distrib, *, roundlevel=0, probability_mode="raw"):
     scale = 100.0 if probability_mode == "percent" else 1.0
     entries = []
@@ -631,6 +810,7 @@ def evaluate(source, files=None, settings=None):
     settings = {} if settings is None else dict(settings)
     roundlevel = int(settings.get("roundlevel", DEFAULT_ROUNDLEVEL))
     probability_mode = settings.get("probability_mode", "raw")
+    text_probability_mode = settings.get("text_probability_mode", "percent")
     source_path = settings.get("source_path", DEFAULT_SOURCE_PATH)
     with tempfile.TemporaryDirectory(prefix="dice-web-eval-") as workspace:
         normalized_source_path = _write_workspace_files(
@@ -658,10 +838,17 @@ def evaluate(source, files=None, settings=None):
             probability_mode=probability_mode,
         )
         renders = viewer.get_render_log()
+        text = _format_result_text(
+            result,
+            roundlevel=roundlevel,
+            probability_mode=text_probability_mode,
+        )
         if renders and serialized.get("type") == "string" and serialized.get("value") == "__dice_web_render__":
             serialized = {"type": "string", "value": "Rendered {} chart(s).".format(len(renders))}
+            text = "Rendered {} chart(s).".format(len(renders))
         return {
             "ok": True,
+            "text": text,
             "result": serialized,
             "renders": renders,
         }
