@@ -508,6 +508,39 @@ function prepareBarChart(chart) {
   };
 }
 
+function normalizeIndexRange(range, totalCount) {
+  if (!range || totalCount <= 0) {
+    return { start: 0, end: Math.max(totalCount - 1, 0) };
+  }
+  return {
+    start: Math.max(0, Math.min(range.start, totalCount - 1)),
+    end: Math.max(0, Math.min(range.end, totalCount - 1)),
+  };
+}
+
+function isFullIndexRange(range, totalCount) {
+  if (totalCount <= 0) {
+    return true;
+  }
+  const normalized = normalizeIndexRange(range, totalCount);
+  return normalized.start === 0 && normalized.end === totalCount - 1;
+}
+
+function sliceCartesianChart(chart, range) {
+  if (!chart.categories || chart.categories.length === 0) {
+    return chart;
+  }
+  const normalized = normalizeIndexRange(range, chart.categories.length);
+  return {
+    ...chart,
+    categories: chart.categories.slice(normalized.start, normalized.end + 1),
+    series: chart.series.map((seriesEntry) => ({
+      ...seriesEntry,
+      values: seriesEntry.values.slice(normalized.start, normalized.end + 1),
+    })),
+  };
+}
+
 function createTooltipController(wrapper, tooltip) {
   function positionTooltip(event) {
     const bounds = wrapper.getBoundingClientRect();
@@ -557,6 +590,118 @@ function createTooltipController(wrapper, tooltip) {
       });
     },
   };
+}
+
+function pointerToSvgPoint(event, svg) {
+  const bounds = svg.getBoundingClientRect();
+  const viewBox = svg.viewBox.baseVal;
+  const width = bounds.width || 1;
+  const height = bounds.height || 1;
+  return {
+    x: ((event.clientX - bounds.left) / width) * viewBox.width,
+    y: ((event.clientY - bounds.top) / height) * viewBox.height,
+  };
+}
+
+function attachCartesianZoom(svg, options) {
+  const { left, top, width, height, totalCount, visibleRange, anchorMode, onZoom, onReset } = options;
+  if (totalCount <= 2) {
+    return;
+  }
+  svg.classList.add("is-zoomable");
+
+  const selection = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+  selection.setAttribute("class", "chart-brush");
+  selection.hidden = true;
+  svg.appendChild(selection);
+
+  let dragStartX = null;
+  let activePointerId = null;
+  const normalizedVisibleRange = normalizeIndexRange(visibleRange, totalCount);
+  const visibleCount = normalizedVisibleRange.end - normalizedVisibleRange.start + 1;
+
+  function indexForPoint(x) {
+    const clampedX = Math.max(left, Math.min(left + width, x));
+    const localX = clampedX - left;
+    if (anchorMode === "line") {
+      if (visibleCount <= 1) {
+        return normalizedVisibleRange.start;
+      }
+      const fraction = localX / width;
+      const visibleIndex = Math.round(fraction * (visibleCount - 1));
+      return normalizedVisibleRange.start + Math.max(0, Math.min(visibleIndex, visibleCount - 1));
+    }
+    const bucketWidth = width / visibleCount;
+    const visibleIndex = Math.floor(localX / bucketWidth);
+    return normalizedVisibleRange.start + Math.max(0, Math.min(visibleIndex, visibleCount - 1));
+  }
+
+  function updateSelection(startX, currentX) {
+    const clampedStart = Math.max(left, Math.min(left + width, startX));
+    const clampedCurrent = Math.max(left, Math.min(left + width, currentX));
+    selection.hidden = false;
+    selection.setAttribute("x", Math.min(clampedStart, clampedCurrent));
+    selection.setAttribute("y", top);
+    selection.setAttribute("width", Math.max(Math.abs(clampedCurrent - clampedStart), 1));
+    selection.setAttribute("height", height);
+  }
+
+  function clearSelection() {
+    selection.hidden = true;
+    dragStartX = null;
+    activePointerId = null;
+  }
+
+  svg.addEventListener("pointerdown", (event) => {
+    const point = pointerToSvgPoint(event, svg);
+    const inPlotX = point.x >= left && point.x <= left + width;
+    const inPlotY = point.y >= top && point.y <= top + height;
+    if (!inPlotX || !inPlotY) {
+      return;
+    }
+    dragStartX = point.x;
+    activePointerId = event.pointerId;
+    if (typeof svg.setPointerCapture === "function") {
+      svg.setPointerCapture(event.pointerId);
+    }
+    updateSelection(dragStartX, point.x);
+  });
+
+  svg.addEventListener("pointermove", (event) => {
+    if (dragStartX === null || event.pointerId !== activePointerId) {
+      return;
+    }
+    const point = pointerToSvgPoint(event, svg);
+    updateSelection(dragStartX, point.x);
+  });
+
+  svg.addEventListener("pointerup", (event) => {
+    if (dragStartX === null || event.pointerId !== activePointerId) {
+      return;
+    }
+    const point = pointerToSvgPoint(event, svg);
+    const startIndex = indexForPoint(dragStartX);
+    const endIndex = indexForPoint(point.x);
+    const nextRange = {
+      start: Math.min(startIndex, endIndex),
+      end: Math.max(startIndex, endIndex),
+    };
+    const didDrag = Math.abs(point.x - dragStartX) >= 14;
+    clearSelection();
+    if (didDrag && nextRange.end > nextRange.start && !isFullIndexRange(nextRange, totalCount)) {
+      onZoom(nextRange);
+    }
+  });
+
+  svg.addEventListener("pointercancel", () => {
+    clearSelection();
+  });
+
+  svg.addEventListener("dblclick", () => {
+    if (!isFullIndexRange(visibleRange, totalCount)) {
+      onReset();
+    }
+  });
 }
 
 const CHART_PALETTE = ["#b65c3a", "#3b6c8e", "#6f8a42", "#8a4f7d"];
@@ -748,7 +893,9 @@ function renderBarChart(chart, options = {}) {
   return renderSvgChart((svg, tooltip) => {
     const wrapper = svg.parentNode;
     const prepared = prepareBarChart(chart);
-    const displayChart = prepared.chart;
+    const fullChart = prepared.chart;
+    const visibleRange = normalizeIndexRange(options.zoomRange, fullChart.categories.length);
+    const displayChart = sliceCartesianChart(fullChart, visibleRange);
     const left = 76;
     const width = 620;
     const height = 222;
@@ -802,16 +949,31 @@ function renderBarChart(chart, options = {}) {
       note.textContent = prepared.zeroNote;
       wrapper.appendChild(note);
     }
+
+    attachCartesianZoom(svg, {
+      left,
+      top,
+      width,
+      height,
+      totalCount: fullChart.categories.length,
+      visibleRange,
+      anchorMode: "bar",
+      onZoom: options.onZoom ?? (() => {}),
+      onReset: options.onReset ?? (() => {}),
+    });
   });
 }
 
 function renderLineChart(chart, options = {}) {
   return renderSvgChart((svg, tooltip) => {
+    const fullChart = chart;
+    const visibleRange = normalizeIndexRange(options.zoomRange, fullChart.categories.length);
+    const displayChart = sliceCartesianChart(fullChart, visibleRange);
     const left = 76;
     const width = 620;
     const height = 222;
-    const values = chart.series.flatMap((series) => series.values);
-    const probabilitySeries = isProbabilityLabel(chart.spec.y_label);
+    const values = displayChart.series.flatMap((series) => series.values);
+    const probabilitySeries = isProbabilityLabel(displayChart.spec.y_label);
     const scale = buildChartScale(values, {
       scaleMode: options.scaleMode,
       includeZeroByDefault: false,
@@ -819,7 +981,7 @@ function renderLineChart(chart, options = {}) {
     });
     const top = 38;
     const bottom = top + height;
-    const xStep = chart.categories.length > 1 ? width / (chart.categories.length - 1) : width;
+    const xStep = displayChart.categories.length > 1 ? width / (displayChart.categories.length - 1) : width;
     drawChartAxes(svg, {
       left,
       top,
@@ -827,12 +989,12 @@ function renderLineChart(chart, options = {}) {
       height,
       bottom,
       scale,
-      categories: chart.categories,
-      xLabel: chart.spec.x_label,
-      yLabel: chart.spec.y_label,
+      categories: displayChart.categories,
+      xLabel: displayChart.spec.x_label,
+      yLabel: displayChart.spec.y_label,
     });
 
-    chart.series.forEach((series, seriesIndex) => {
+    displayChart.series.forEach((series, seriesIndex) => {
       const points = series.values.map((value, index) => {
         const x = left + index * xStep;
         const y = valueToY(value, scale, top, height);
@@ -843,8 +1005,8 @@ function renderLineChart(chart, options = {}) {
         circle.setAttribute("fill", CHART_PALETTE[seriesIndex % CHART_PALETTE.length]);
         tooltip.attach(circle, [
           series.name,
-          `${chart.spec.x_label}: ${chart.categories[index]}`,
-          `${chart.spec.y_label}: ${formatHoverValue(value, chart.spec.y_label)}`,
+          `${displayChart.spec.x_label}: ${displayChart.categories[index]}`,
+          `${displayChart.spec.y_label}: ${formatHoverValue(value, displayChart.spec.y_label)}`,
         ]);
         svg.appendChild(circle);
         return `${x},${y}`;
@@ -856,6 +1018,18 @@ function renderLineChart(chart, options = {}) {
       polyline.setAttribute("stroke", CHART_PALETTE[seriesIndex % CHART_PALETTE.length]);
       polyline.setAttribute("stroke-width", "3");
       svg.appendChild(polyline);
+    });
+
+    attachCartesianZoom(svg, {
+      left,
+      top,
+      width,
+      height,
+      totalCount: fullChart.categories.length,
+      visibleRange,
+      anchorMode: "line",
+      onZoom: options.onZoom ?? (() => {}),
+      onReset: options.onReset ?? (() => {}),
     });
   });
 }
@@ -974,7 +1148,21 @@ function renderCartesianChart(chart, plotHost, options = {}) {
   const view = options.view ?? chartToggleView(chart.kind);
   const displayChart = view ? chartWithView(chart, view) : chart;
   const scaleMode = options.scaleMode ?? "auto";
-  plotHost.replaceChildren(view === "line" ? renderLineChart(displayChart, { scaleMode }) : renderBarChart(displayChart, { scaleMode }));
+  const chartNode =
+    view === "line"
+      ? renderLineChart(displayChart, {
+          scaleMode,
+          zoomRange: options.zoomRange,
+          onZoom: options.onZoom,
+          onReset: options.onReset,
+        })
+      : renderBarChart(displayChart, {
+          scaleMode,
+          zoomRange: options.zoomRange,
+          onZoom: options.onZoom,
+          onReset: options.onReset,
+        });
+  plotHost.replaceChildren(chartNode);
 }
 
 function renderSingleChart(chart, container) {
@@ -1001,12 +1189,25 @@ function renderSingleChart(chart, container) {
     const legend = buildLegend(chart);
     let activeView = chartToggleView(chart.kind);
     let activeScaleMode = "auto";
+    let activeZoomRange = null;
+    const zoomable = Array.isArray(chart.categories) && chart.categories.length > 2;
 
     const renderActiveChart = () => {
       const activeChart = chartWithView(chart, activeView);
       renderCartesianChart(activeChart, plotHost, {
         view: activeView,
         scaleMode: activeScaleMode,
+        zoomRange: activeZoomRange,
+        onZoom: (nextRange) => {
+          activeZoomRange = nextRange;
+          renderActiveChart();
+          syncButtons(controlButtons);
+        },
+        onReset: () => {
+          activeZoomRange = null;
+          renderActiveChart();
+          syncButtons(controlButtons);
+        },
       });
       if (modeLabel) {
         modeLabel.textContent = `${activeChart.kind} · ${activeScaleMode}`;
@@ -1016,10 +1217,13 @@ function renderSingleChart(chart, container) {
     const syncButtons = (buttons) => {
       buttons.forEach((button) => {
         const buttonValue = button.dataset.view ?? button.dataset.scaleMode;
-        const activeValue = button.dataset.view ? activeView : activeScaleMode;
+        const activeValue = button.dataset.view ? activeView : button.dataset.scaleMode ? activeScaleMode : null;
         const isActive = buttonValue === activeValue;
         button.classList.toggle("is-active", isActive);
         button.setAttribute("aria-pressed", String(isActive));
+        if (button.dataset.action === "reset-zoom") {
+          button.disabled = activeZoomRange === null;
+        }
       });
     };
 
@@ -1077,6 +1281,31 @@ function renderSingleChart(chart, container) {
       scaleControls.appendChild(button);
     });
     controls.appendChild(scaleControls);
+
+    if (zoomable) {
+      const actionControls = document.createElement("div");
+      actionControls.className = "chart-control-group";
+      const zoomHint = document.createElement("span");
+      zoomHint.className = "chart-control-label";
+      zoomHint.textContent = "Drag to zoom";
+      actionControls.appendChild(zoomHint);
+      const resetZoomButton = document.createElement("button");
+      resetZoomButton.type = "button";
+      resetZoomButton.className = "chart-toggle";
+      resetZoomButton.dataset.action = "reset-zoom";
+      resetZoomButton.textContent = "Reset Zoom";
+      resetZoomButton.addEventListener("click", () => {
+        if (activeZoomRange === null) {
+          return;
+        }
+        activeZoomRange = null;
+        renderActiveChart();
+        syncButtons(controlButtons);
+      });
+      controlButtons.push(resetZoomButton);
+      actionControls.appendChild(resetZoomButton);
+      controls.appendChild(actionControls);
+    }
 
     syncButtons(controlButtons);
     renderActiveChart();
