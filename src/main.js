@@ -9,12 +9,8 @@ const STORAGE_KEY = "dice-web:last-source";
 const SNIPPETS_KEY = "dice-web:snippets";
 const EMPTY_SNIPPET = "__empty__";
 
-const runtimeStatus = document.querySelector("#runtime-status");
-const runtimeDetail = document.querySelector("#runtime-detail");
-const builtinCount = document.querySelector("#builtin-count");
 const runButton = document.querySelector("#run-button");
 const shareButton = document.querySelector("#share-button");
-const sampleSelect = document.querySelector("#sample-select");
 const loadSampleButton = document.querySelector("#load-sample-button");
 const snippetSelect = document.querySelector("#snippet-select");
 const saveSnippetButton = document.querySelector("#save-snippet-button");
@@ -27,81 +23,25 @@ const chartOutput = document.querySelector("#chart-output");
 const chartEmpty = document.querySelector("#chart-empty");
 const resultKind = document.querySelector("#result-kind");
 const editorSurface = document.querySelector("#editor");
+const fileTabs = document.querySelector("#file-tabs");
+const sampleDialog = document.querySelector("#sample-dialog");
+const sampleDialogSelect = document.querySelector("#sample-dialog-select");
+const sampleDialogConfirm = document.querySelector("#sample-dialog-confirm");
 
 let rpcId = 0;
-let workerReady = false;
-let symbols = null;
 let samples = [];
 let saveUrlTimer = null;
-let activeWorkspace = {
-  sourcePath: "main.dice",
-  files: null,
-  samplePath: null,
-};
-
-const worker = new Worker(new URL("./worker.js", import.meta.url));
-const pendingRpc = new Map();
-
+let suppressEditorSync = false;
 let fallbackTextarea = null;
 let aceEditor = null;
 
-function initializeEditor() {
-  if (window.ace) {
-    editorSurface.textContent = "";
-    aceEditor = window.ace.edit(editorSurface);
-    aceEditor.session.setValue(loadSavedSource());
-    aceEditor.setTheme("ace/theme/tomorrow_night_bright");
-    aceEditor.session.setMode("ace/mode/text");
-    aceEditor.session.setTabSize(2);
-    aceEditor.session.setUseSoftTabs(true);
-    aceEditor.setOptions({
-      fontSize: "15px",
-      showPrintMargin: false,
-      wrap: true,
-      highlightActiveLine: true,
-    });
-    aceEditor.commands.addCommand({
-      name: "runDice",
-      bindKey: { win: "Ctrl-Enter", mac: "Command-Enter" },
-      exec: () => {
-        void evaluateSource();
-      },
-    });
-    aceEditor.session.on("change", () => {
-      persistSource(currentSource());
-    });
-    return;
-  }
+let activeWorkspace = createWorkspace({
+  files: { "main.dice": loadSavedSource() },
+  entryPath: "main.dice",
+});
 
-  fallbackTextarea = document.createElement("textarea");
-  fallbackTextarea.className = "editor-textarea";
-  fallbackTextarea.setAttribute("spellcheck", "false");
-  fallbackTextarea.setAttribute("aria-label", "dice editor");
-  fallbackTextarea.value = loadSavedSource();
-  fallbackTextarea.addEventListener("input", () => {
-    persistSource(currentSource());
-  });
-  fallbackTextarea.addEventListener("keydown", (event) => {
-    if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
-      event.preventDefault();
-      void evaluateSource();
-      return;
-    }
-    if (event.key !== "Tab") {
-      return;
-    }
-    event.preventDefault();
-    const start = fallbackTextarea.selectionStart;
-    const end = fallbackTextarea.selectionEnd;
-    const value = currentSource();
-    replaceSource(value.slice(0, start) + "  " + value.slice(end));
-    fallbackTextarea.selectionStart = start + 2;
-    fallbackTextarea.selectionEnd = start + 2;
-  });
-  editorSurface.replaceChildren(fallbackTextarea);
-}
-
-initializeEditor();
+const worker = new Worker(new URL("./worker.js", import.meta.url));
+const pendingRpc = new Map();
 
 worker.addEventListener("message", (event) => {
   const { id, ok, result, error } = event.data;
@@ -125,6 +65,26 @@ function callWorker(method, params = {}) {
   });
 }
 
+function createWorkspace({ files, entryPath, samplePath = null, activeFilePath = null }) {
+  const normalizedFiles = { ...files };
+  const openFiles = Object.keys(normalizedFiles).sort((left, right) => {
+    if (left === entryPath) {
+      return -1;
+    }
+    if (right === entryPath) {
+      return 1;
+    }
+    return left.localeCompare(right);
+  });
+  return {
+    samplePath,
+    files: normalizedFiles,
+    entryPath,
+    openFiles,
+    activeFilePath: activeFilePath ?? entryPath,
+  };
+}
+
 function loadSavedSource() {
   const url = new URL(window.location.href);
   const codeParam = url.searchParams.get("code");
@@ -135,61 +95,88 @@ function loadSavedSource() {
   return saved || DEFAULT_SOURCE;
 }
 
-function resetWorkspace() {
-  activeWorkspace = {
-    sourcePath: "main.dice",
-    files: null,
-    samplePath: null,
-  };
-}
-
-function currentSource() {
+function currentEditorValue() {
   if (aceEditor) {
     return aceEditor.getValue();
   }
   return fallbackTextarea.value;
 }
 
-function replaceSource(nextSource) {
+function setEditorValue(value) {
+  suppressEditorSync = true;
   if (aceEditor) {
-    aceEditor.session.setValue(nextSource);
+    aceEditor.session.setValue(value);
     aceEditor.clearSelection();
   } else {
-    fallbackTextarea.value = nextSource;
+    fallbackTextarea.value = value;
   }
-  persistSource(nextSource);
+  suppressEditorSync = false;
 }
 
-function persistSource(source) {
-  window.localStorage.setItem(STORAGE_KEY, source);
-  saveUrlState(source);
+function syncActiveFileFromEditor() {
+  if (suppressEditorSync) {
+    return;
+  }
+  activeWorkspace.files[activeWorkspace.activeFilePath] = currentEditorValue();
+  persistWorkspace();
 }
 
-function refreshSampleSelect() {
-  const fragment = document.createDocumentFragment();
+function currentSource() {
+  return activeWorkspace.files[activeWorkspace.activeFilePath] ?? "";
+}
 
-  const blank = document.createElement("option");
-  blank.value = "";
-  blank.textContent = "Choose sample";
-  fragment.appendChild(blank);
+function entrySource() {
+  return activeWorkspace.files[activeWorkspace.entryPath] ?? "";
+}
 
-  let currentGroup = null;
-  let currentOptgroup = null;
-  for (const sample of samples) {
-    if (sample.group !== currentGroup) {
-      currentGroup = sample.group;
-      currentOptgroup = document.createElement("optgroup");
-      currentOptgroup.label = sample.group;
-      fragment.appendChild(currentOptgroup);
-    }
-    const option = document.createElement("option");
-    option.value = sample.path;
-    option.textContent = sample.name;
-    currentOptgroup.appendChild(option);
+function persistWorkspace() {
+  window.localStorage.setItem(STORAGE_KEY, entrySource());
+  saveUrlState();
+}
+
+function replaceCurrentFileSource(nextSource) {
+  activeWorkspace.files[activeWorkspace.activeFilePath] = nextSource;
+  setEditorValue(nextSource);
+  persistWorkspace();
+}
+
+function resetWorkspace() {
+  const source = currentSource();
+  activeWorkspace = createWorkspace({
+    files: { "main.dice": source },
+    entryPath: "main.dice",
+  });
+  renderFileTabs();
+  setEditorValue(currentSource());
+}
+
+function basename(path) {
+  const parts = path.split("/");
+  return parts[parts.length - 1];
+}
+
+function setResultState(state) {
+  resultKind.textContent = state;
+}
+
+function buildShareUrl() {
+  const url = new URL(window.location.href);
+  url.searchParams.set("code", entrySource());
+  if (activeWorkspace.samplePath) {
+    url.searchParams.set("sample", activeWorkspace.samplePath);
+  } else {
+    url.searchParams.delete("sample");
   }
+  return url;
+}
 
-  sampleSelect.replaceChildren(fragment);
-  sampleSelect.value = activeWorkspace.samplePath ?? "";
+function saveUrlState() {
+  if (saveUrlTimer) {
+    window.clearTimeout(saveUrlTimer);
+  }
+  saveUrlTimer = window.setTimeout(() => {
+    window.history.replaceState({}, "", buildShareUrl());
+  }, 250);
 }
 
 function loadSnippets() {
@@ -226,30 +213,110 @@ function refreshSnippetSelect() {
   }
 }
 
-function buildShareUrl(source) {
-  const url = new URL(window.location.href);
-  url.searchParams.set("code", source);
+function populateSampleDialog() {
+  const fragment = document.createDocumentFragment();
+  let currentGroup = null;
+  let currentOptgroup = null;
+
+  for (const sample of samples) {
+    if (sample.group !== currentGroup) {
+      currentGroup = sample.group;
+      currentOptgroup = document.createElement("optgroup");
+      currentOptgroup.label = sample.group;
+      fragment.appendChild(currentOptgroup);
+    }
+    const option = document.createElement("option");
+    option.value = sample.path;
+    option.textContent = sample.name;
+    currentOptgroup.appendChild(option);
+  }
+
+  sampleDialogSelect.replaceChildren(fragment);
   if (activeWorkspace.samplePath) {
-    url.searchParams.set("sample", activeWorkspace.samplePath);
-  } else {
-    url.searchParams.delete("sample");
+    sampleDialogSelect.value = activeWorkspace.samplePath;
+  } else if (samples.length > 0) {
+    sampleDialogSelect.value = samples[0].path;
   }
-  return url;
 }
 
-function saveUrlState(source) {
-  if (saveUrlTimer) {
-    window.clearTimeout(saveUrlTimer);
+function renderFileTabs() {
+  const fragment = document.createDocumentFragment();
+  for (const path of activeWorkspace.openFiles) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = path === activeWorkspace.activeFilePath ? "file-tab is-active" : "file-tab";
+    button.textContent = basename(path);
+    button.title = path;
+    button.addEventListener("click", () => {
+      if (path === activeWorkspace.activeFilePath) {
+        return;
+      }
+      syncActiveFileFromEditor();
+      activeWorkspace.activeFilePath = path;
+      renderFileTabs();
+      setEditorValue(currentSource());
+    });
+    fragment.appendChild(button);
   }
-  saveUrlTimer = window.setTimeout(() => {
-    window.history.replaceState({}, "", buildShareUrl(source));
-  }, 300);
+  fileTabs.replaceChildren(fragment);
 }
 
-function updateRuntimeStatus(label, detail, kind = "idle") {
-  runtimeStatus.textContent = label;
-  runtimeDetail.textContent = detail;
-  resultKind.textContent = kind;
+function initializeEditor() {
+  if (window.ace) {
+    editorSurface.textContent = "";
+    aceEditor = window.ace.edit(editorSurface);
+    aceEditor.setTheme("ace/theme/tomorrow_night_bright");
+    aceEditor.session.setMode("ace/mode/text");
+    aceEditor.session.setTabSize(2);
+    aceEditor.session.setUseSoftTabs(true);
+    aceEditor.setOptions({
+      fontSize: "14px",
+      showPrintMargin: false,
+      wrap: true,
+      highlightActiveLine: true,
+    });
+    aceEditor.commands.addCommand({
+      name: "runDice",
+      bindKey: { win: "Ctrl-Enter", mac: "Command-Enter" },
+      exec: () => {
+        void evaluateSource();
+      },
+    });
+    aceEditor.session.on("change", () => {
+      syncActiveFileFromEditor();
+    });
+    setEditorValue(currentSource());
+    return;
+  }
+
+  fallbackTextarea = document.createElement("textarea");
+  fallbackTextarea.className = "editor-textarea";
+  fallbackTextarea.setAttribute("spellcheck", "false");
+  fallbackTextarea.setAttribute("aria-label", "dice editor");
+  fallbackTextarea.addEventListener("input", () => {
+    syncActiveFileFromEditor();
+  });
+  fallbackTextarea.addEventListener("keydown", (event) => {
+    if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
+      event.preventDefault();
+      void evaluateSource();
+      return;
+    }
+    if (event.key !== "Tab") {
+      return;
+    }
+    event.preventDefault();
+    const start = fallbackTextarea.selectionStart;
+    const end = fallbackTextarea.selectionEnd;
+    const value = currentEditorValue();
+    const nextValue = value.slice(0, start) + "  " + value.slice(end);
+    setEditorValue(nextValue);
+    fallbackTextarea.selectionStart = start + 2;
+    fallbackTextarea.selectionEnd = start + 2;
+    syncActiveFileFromEditor();
+  });
+  editorSurface.replaceChildren(fallbackTextarea);
+  setEditorValue(currentSource());
 }
 
 function formatProbability(value) {
@@ -321,6 +388,9 @@ function renderBarChart(chart) {
     const allValues = chart.series.flatMap((series) => series.values);
     const maxValue = Math.max(...allValues, 1);
     const barWidth = width / chart.categories.length;
+    const palette = ["#b65c3a", "#3b6c8e", "#6f8a42", "#8a4f7d"];
+    const seriesCount = chart.series.length;
+    const innerBarWidth = Math.max((barWidth - 18) / seriesCount, 6);
 
     const axis = document.createElementNS("http://www.w3.org/2000/svg", "line");
     axis.setAttribute("x1", left);
@@ -338,9 +408,6 @@ function renderBarChart(chart) {
     yAxis.setAttribute("class", "chart-axis-line");
     svg.appendChild(yAxis);
 
-    const palette = ["#b65c3a", "#3b6c8e", "#6f8a42", "#8a4f7d"];
-    const seriesCount = chart.series.length;
-    const innerBarWidth = Math.max((barWidth - 18) / seriesCount, 6);
     chart.series.forEach((series, seriesIndex) => {
       series.values.forEach((value, index) => {
         const normalized = value / maxValue;
@@ -543,7 +610,7 @@ function setOutputs(payload) {
     textOutput.textContent = "";
     jsonOutput.textContent = "";
     renderCharts(null);
-    resultKind.textContent = "error";
+    setResultState("error");
     return;
   }
 
@@ -551,59 +618,56 @@ function setOutputs(payload) {
   diagnosticOutput.textContent = "";
   textOutput.textContent = summarizeResult(payload.result);
   jsonOutput.textContent = JSON.stringify(payload.result, null, 2);
-  resultKind.textContent = payload.result.type;
+  setResultState(payload.result.type);
   renderCharts(payload.renders && payload.renders.length ? payload.renders : payload.render);
 }
 
 async function evaluateSource() {
-  const source = currentSource();
-  updateRuntimeStatus("Evaluating…", "Running dice in a Pyodide worker.", "running");
+  syncActiveFileFromEditor();
+  setResultState("running");
   try {
     const payload = await callWorker("evaluate", {
-      source,
+      source: activeWorkspace.files[activeWorkspace.entryPath],
       files: activeWorkspace.files,
       settings: {
-        source_path: activeWorkspace.sourcePath,
+        source_path: activeWorkspace.entryPath,
       },
     });
     setOutputs(payload);
-    if (payload.ok) {
-      updateRuntimeStatus("Ready", "Worker runtime is warm. Use Cmd/Ctrl+Enter to re-run.", payload.result.type);
-    } else {
-      updateRuntimeStatus("Diagnostic", "The runtime returned a structured error.", "error");
-    }
   } catch (error) {
     diagnosticPanel.hidden = false;
     diagnosticOutput.textContent = error.message;
-    updateRuntimeStatus("Worker failed", error.message, "error");
+    setResultState("error");
   }
 }
 
-async function loadSelectedSample() {
-  const selectedPath = sampleSelect.value;
-  if (!selectedPath) {
-    resetWorkspace();
+async function loadSamplePath(path) {
+  const sample = await callWorker("loadSample", { path });
+  activeWorkspace = createWorkspace({
+    files: sample.files,
+    entryPath: sample.source_path,
+    samplePath: path,
+  });
+  renderFileTabs();
+  setEditorValue(currentSource());
+  persistWorkspace();
+}
+
+function openSampleDialog() {
+  if (samples.length === 0) {
     return;
   }
-  updateRuntimeStatus("Loading sample…", "Fetching bundled sample sources into the worker context.", "loading");
-  try {
-    const sample = await callWorker("loadSample", { path: selectedPath });
-    activeWorkspace = {
-      sourcePath: sample.source_path,
-      files: sample.files,
-      samplePath: selectedPath,
-    };
-    replaceSource(sample.source);
-    updateRuntimeStatus("Sample loaded", `Loaded ${selectedPath}.`, "ready");
-  } catch (error) {
-    updateRuntimeStatus("Sample failed", error.message, "error");
-    diagnosticPanel.hidden = false;
-    diagnosticOutput.textContent = error.message;
+  populateSampleDialog();
+  if (typeof sampleDialog.showModal === "function") {
+    sampleDialog.showModal();
+  } else {
+    sampleDialog.setAttribute("open", "");
   }
 }
 
 async function copyShareUrl() {
-  const url = buildShareUrl(currentSource());
+  syncActiveFileFromEditor();
+  const url = buildShareUrl();
   window.history.replaceState({}, "", url);
   await navigator.clipboard.writeText(url.toString());
   shareButton.textContent = "Copied";
@@ -611,6 +675,9 @@ async function copyShareUrl() {
     shareButton.textContent = "Copy Share URL";
   }, 1200);
 }
+
+initializeEditor();
+renderFileTabs();
 
 runButton.addEventListener("click", () => {
   void evaluateSource();
@@ -621,18 +688,39 @@ shareButton.addEventListener("click", () => {
 });
 
 loadSampleButton.addEventListener("click", () => {
-  void loadSelectedSample();
+  openSampleDialog();
+});
+
+sampleDialog.addEventListener("close", async () => {
+  if (sampleDialog.returnValue === "cancel") {
+    return;
+  }
+  const selectedPath = sampleDialogSelect.value;
+  if (!selectedPath) {
+    return;
+  }
+  try {
+    await loadSamplePath(selectedPath);
+    await evaluateSource();
+  } catch (error) {
+    diagnosticPanel.hidden = false;
+    diagnosticOutput.textContent = error.message;
+    setResultState("error");
+  }
+});
+
+sampleDialogConfirm.addEventListener("click", () => {
+  sampleDialog.returnValue = "default";
 });
 
 saveSnippetButton.addEventListener("click", () => {
+  syncActiveFileFromEditor();
   const name = window.prompt("Snippet name");
   if (!name) {
     return;
   }
   const snippets = loadSnippets();
   snippets[name] = currentSource();
-  resetWorkspace();
-  refreshSampleSelect();
   saveSnippets(snippets);
   refreshSnippetSelect();
   snippetSelect.value = name;
@@ -653,8 +741,6 @@ deleteSnippetButton.addEventListener("click", () => {
 snippetSelect.addEventListener("change", () => {
   const selected = snippetSelect.value;
   if (selected === EMPTY_SNIPPET) {
-    resetWorkspace();
-    refreshSampleSelect();
     return;
   }
   const snippets = loadSnippets();
@@ -662,42 +748,42 @@ snippetSelect.addEventListener("change", () => {
   if (!snippet) {
     return;
   }
-  resetWorkspace();
-  refreshSampleSelect();
-  replaceSource(snippet);
+  activeWorkspace = createWorkspace({
+    files: { "main.dice": snippet },
+    entryPath: "main.dice",
+  });
+  renderFileTabs();
+  setEditorValue(currentSource());
+  persistWorkspace();
 });
 
 refreshSnippetSelect();
-refreshSampleSelect();
-setOutputs({ ok: true, result: { type: "string", value: "Runtime not started yet." }, render: null });
-textOutput.textContent = "Runtime not started yet.";
+setOutputs({ ok: true, result: { type: "string", value: "Run a program to see output." }, render: null });
+textOutput.textContent = "Run a program to see output.";
 jsonOutput.textContent = "{}";
 
 async function boot() {
-  updateRuntimeStatus("Booting Pyodide…", "Loading runtime files from ./runtime and initializing the worker.", "booting");
   try {
-    symbols = await callWorker("init");
+    await callWorker("init");
     samples = await callWorker("listSamples");
-    refreshSampleSelect();
-    workerReady = true;
-    builtinCount.textContent = `${symbols.builtins.length} builtins`;
-    updateRuntimeStatus("Ready", "Pyodide is warm and the dice web bridge is loaded.", "ready");
     const url = new URL(window.location.href);
     const sampleFromUrl = url.searchParams.get("sample");
     const sharedSource = url.searchParams.get("code");
     if (sampleFromUrl) {
-      sampleSelect.value = sampleFromUrl;
-      await loadSelectedSample();
+      await loadSamplePath(sampleFromUrl);
       if (sharedSource) {
-        replaceSource(sharedSource);
+        activeWorkspace.files[activeWorkspace.entryPath] = sharedSource;
+        if (activeWorkspace.activeFilePath === activeWorkspace.entryPath) {
+          setEditorValue(sharedSource);
+        }
+        persistWorkspace();
       }
     }
     await evaluateSource();
   } catch (error) {
-    workerReady = false;
-    updateRuntimeStatus("Boot failed", error.message, "error");
     diagnosticPanel.hidden = false;
     diagnosticOutput.textContent = error.message;
+    setResultState("error");
   }
 }
 

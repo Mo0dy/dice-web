@@ -49,107 +49,46 @@ pre {
 .page-shell {
   width: min(1380px, calc(100vw - 2rem));
   margin: 0 auto;
-  padding: 1.25rem 0 2rem;
+  padding: 0.75rem 0 1rem;
 }
 
-.hero {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 300px;
-  gap: 1.25rem;
-  align-items: start;
-  margin-bottom: 1.25rem;
-}
-
-.eyebrow,
-.panel-label {
-  margin: 0 0 0.5rem;
-  color: var(--accent-strong);
-  letter-spacing: 0.18em;
-  text-transform: uppercase;
-  font-size: 0.78rem;
-}
-
-.hero h1,
-.panel-header h2 {
-  margin: 0;
-  font-family: var(--display-font);
-  font-weight: 700;
-  line-height: 0.94;
-  letter-spacing: -0.03em;
-}
-
-.hero h1 {
-  font-size: clamp(2.6rem, 6vw, 5.6rem);
-}
-
-.hero-copy {
-  max-width: 58rem;
-  margin: 1rem 0 0;
-  color: var(--ink-muted);
-  line-height: 1.6;
-}
-
-.status-card,
 .panel,
-.subpanel {
+.subpanel,
+.sample-dialog-form {
   background: rgba(255, 251, 245, 0.84);
   border: 1px solid var(--border);
-  border-radius: 24px;
-  box-shadow: var(--panel-shadow);
+  border-radius: 18px;
+  box-shadow: 0 16px 40px rgba(56, 34, 17, 0.12);
   backdrop-filter: blur(12px);
-}
-
-.status-card {
-  padding: 1.25rem;
-}
-
-.status-card strong {
-  display: block;
-  margin-top: 0.25rem;
-  font-size: 1.1rem;
-}
-
-.status-card p {
-  margin: 0.5rem 0 0;
-  color: var(--ink-muted);
-  line-height: 1.55;
-}
-
-.status-label {
-  color: var(--ink-muted);
-  text-transform: uppercase;
-  letter-spacing: 0.16em;
-  font-size: 0.72rem;
 }
 
 .workspace {
   display: grid;
   grid-template-columns: minmax(0, 1.15fr) minmax(380px, 0.85fr);
-  gap: 1.25rem;
+  gap: 0.85rem;
   align-items: start;
 }
 
 .panel {
-  padding: 1rem;
+  padding: 0.75rem;
 }
 
-.panel-header,
-.toolbar {
+.compact-toolbar,
+.toolbar-group,
+.results-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  gap: 0.75rem;
+  gap: 0.5rem;
 }
 
-.toolbar {
+.compact-toolbar,
+.toolbar-group {
   flex-wrap: wrap;
 }
 
-.toolbar-secondary {
-  margin: 0.9rem 0 1rem;
-  padding: 0.85rem 0.95rem;
-  background: rgba(236, 226, 208, 0.45);
-  border-radius: 16px;
+.compact-toolbar {
+  margin-bottom: 0.5rem;
 }
 
 .button {
@@ -157,9 +96,10 @@ pre {
   background: rgba(255, 255, 255, 0.6);
   color: var(--ink);
   border-radius: 999px;
-  padding: 0.72rem 1rem;
+  padding: 0.5rem 0.8rem;
   cursor: pointer;
   transition: transform 120ms ease, background 120ms ease, border-color 120ms ease;
+  font-size: 0.88rem;
 }
 
 .button:hover {
@@ -181,29 +121,57 @@ pre {
   color: var(--danger);
 }
 
-.snippet-field {
+.compact-select,
+.sample-dialog-field {
   display: grid;
-  gap: 0.35rem;
+  gap: 0.2rem;
 }
 
-.snippet-field span {
+.compact-select span,
+.sample-dialog-field span {
   color: var(--ink-muted);
-  font-size: 0.78rem;
+  font-size: 0.68rem;
   text-transform: uppercase;
   letter-spacing: 0.14em;
 }
 
-.snippet-field select {
-  min-width: 14rem;
-  border-radius: 12px;
+.compact-select select,
+.sample-dialog-field select {
+  min-width: 11rem;
+  border-radius: 10px;
   border: 1px solid var(--border);
   background: #fffcf7;
-  padding: 0.65rem 0.75rem;
+  padding: 0.45rem 0.65rem;
+}
+
+.file-tabs {
+  display: flex;
+  gap: 0.35rem;
+  overflow-x: auto;
+  margin-bottom: 0.55rem;
+  padding-bottom: 0.1rem;
+}
+
+.file-tab {
+  flex: 0 0 auto;
+  border: 1px solid rgba(31, 29, 26, 0.08);
+  background: rgba(236, 226, 208, 0.65);
+  color: var(--ink-muted);
+  border-radius: 10px 10px 0 0;
+  padding: 0.45rem 0.7rem;
+  cursor: pointer;
+  font-size: 0.83rem;
+}
+
+.file-tab.is-active {
+  background: rgba(27, 24, 22, 0.94);
+  color: #f6efe4;
+  border-color: rgba(255, 255, 255, 0.08);
 }
 
 .editor-surface {
   min-height: 580px;
-  border-radius: 20px;
+  border-radius: 14px;
   overflow: hidden;
   border: 1px solid rgba(31, 29, 26, 0.08);
   background: linear-gradient(180deg, rgba(27, 24, 22, 0.98), rgba(53, 42, 34, 0.98));
@@ -253,23 +221,21 @@ pre {
 .panel-results {
   display: grid;
   grid-template-rows: auto auto minmax(0, 1fr) auto;
-  gap: 0.95rem;
+  gap: 0.65rem;
 }
 
-.meta-list {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.5rem;
+.results-header {
+  margin-bottom: 0.1rem;
 }
 
 .pill {
   display: inline-flex;
   align-items: center;
-  padding: 0.45rem 0.75rem;
+  padding: 0.28rem 0.55rem;
   border-radius: 999px;
   background: rgba(13, 111, 79, 0.12);
   color: var(--success);
-  font-size: 0.84rem;
+  font-size: 0.76rem;
 }
 
 .pill-muted {
@@ -278,16 +244,16 @@ pre {
 }
 
 .diagnostic-panel {
-  padding: 1rem;
-  border-radius: 18px;
+  padding: 0.75rem;
+  border-radius: 14px;
   background: rgba(143, 40, 52, 0.08);
   border: 1px solid rgba(143, 40, 52, 0.12);
 }
 
 .diagnostic-panel h3,
 .subpanel h3 {
-  margin: 0 0 0.75rem;
-  font-size: 0.95rem;
+  margin: 0 0 0.45rem;
+  font-size: 0.8rem;
   text-transform: uppercase;
   letter-spacing: 0.14em;
 }
@@ -302,9 +268,9 @@ pre {
 }
 
 .chart-panel {
-  min-height: 20rem;
-  padding: 1rem;
-  border-radius: 20px;
+  min-height: 16rem;
+  padding: 0.75rem;
+  border-radius: 14px;
   background: rgba(255, 255, 255, 0.55);
   border: 1px dashed rgba(31, 29, 26, 0.14);
 }
@@ -317,9 +283,10 @@ pre {
 .chart-empty {
   display: grid;
   place-items: center;
-  min-height: 18rem;
+  min-height: 12rem;
   text-align: center;
   color: var(--ink-muted);
+  font-size: 0.88rem;
 }
 
 .chart-stack {
@@ -332,7 +299,7 @@ pre {
   justify-content: space-between;
   gap: 1rem;
   color: var(--ink-muted);
-  font-size: 0.86rem;
+  font-size: 0.78rem;
 }
 
 .chart-svg {
@@ -383,10 +350,10 @@ pre {
 .heatmap-cell,
 .heatmap-header {
   min-width: 3rem;
-  padding: 0.55rem;
+  padding: 0.42rem;
   text-align: center;
-  border-radius: 10px;
-  font-size: 0.82rem;
+  border-radius: 8px;
+  font-size: 0.76rem;
 }
 
 .heatmap-header {
@@ -401,66 +368,57 @@ pre {
 .result-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 0.95rem;
+  gap: 0.65rem;
 }
 
 .subpanel {
-  padding: 1rem;
+  padding: 0.75rem;
   min-height: 0;
 }
 
-.cm-editor {
-  height: 100%;
-  font-size: 0.95rem;
-}
-
-.cm-scroller,
-.cm-content,
-.cm-gutters {
-  min-height: 580px;
-}
-
-.cm-scroller {
-  font-family: var(--code-font);
-}
-
-.cm-theme-dice {
+.sample-dialog {
+  border: 0;
   background: transparent;
-  color: #f6efe4;
+  padding: 0;
 }
 
-.cm-theme-dice .cm-gutters {
-  background: rgba(255, 255, 255, 0.03);
-  color: rgba(255, 248, 236, 0.32);
-  border: none;
+.sample-dialog::backdrop {
+  background: rgba(31, 29, 26, 0.28);
 }
 
-.cm-theme-dice .cm-activeLine,
-.cm-theme-dice .cm-activeLineGutter {
-  background: rgba(255, 255, 255, 0.06);
+.sample-dialog-form {
+  min-width: min(30rem, calc(100vw - 2rem));
+  padding: 0.85rem;
 }
 
-.cm-theme-dice .cm-cursor {
-  border-left-color: #ffd7a5;
+.sample-dialog-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.75rem;
 }
 
-.cm-theme-dice .cm-selectionBackground,
-.cm-theme-dice.cm-focused .cm-selectionBackground {
-  background: rgba(182, 92, 58, 0.28);
+.sample-dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  padding: 0;
+  margin: 0.9rem 0 0;
 }
 
-.cm-tooltip {
-  border-radius: 14px;
-  border: 1px solid var(--border);
-  overflow: hidden;
-  font-family: var(--code-font);
+.dialog-close {
+  border: 0;
+  background: transparent;
+  color: var(--ink-muted);
+  font-size: 1.2rem;
+  cursor: pointer;
 }
 
 @media (min-width: 1101px) {
   .panel-results {
     position: sticky;
-    top: 1rem;
-    height: calc(100vh - 2rem);
+    top: 0.75rem;
+    height: calc(100vh - 1.5rem);
     overflow: hidden;
   }
 
@@ -481,7 +439,6 @@ pre {
 }
 
 @media (max-width: 1100px) {
-  .hero,
   .workspace,
   .result-grid {
     grid-template-columns: 1fr;
@@ -494,20 +451,27 @@ pre {
 
 @media (max-width: 720px) {
   .page-shell {
-    padding-top: 0.75rem;
+    width: min(100vw - 0.5rem, 1380px);
+    padding-top: 0.25rem;
   }
 
   .panel,
-  .status-card {
-    border-radius: 20px;
+  .subpanel,
+  .sample-dialog-form {
+    border-radius: 14px;
+  }
+
+  .compact-toolbar {
+    align-items: stretch;
+  }
+
+  .toolbar-group {
+    width: 100%;
   }
 
   .editor-surface,
   #editor,
-  .editor-textarea,
-  .cm-scroller,
-  .cm-content,
-  .cm-gutters {
+  .editor-textarea {
     min-height: 430px;
   }
 }
