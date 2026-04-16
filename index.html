@@ -11,16 +11,22 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
-      href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600;9..144,700&family=IBM+Plex+Mono:wght@400;500&display=swap"
+      href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap"
       rel="stylesheet"
     />
     <link rel="stylesheet" href="./styles/app.css" />
   </head>
   <body>
-    <div class="page-shell">
+    <div class="app-shell">
+      <header class="topbar">
+        <div class="topbar-brand">dice-web</div>
+        <div class="topbar-meta">Pyodide runtime</div>
+        <div class="topbar-meta">Ctrl/Command+Enter runs the active file</div>
+      </header>
+
       <main class="workspace">
-        <section class="panel panel-editor">
-          <div class="compact-toolbar">
+        <section class="editor-panel">
+          <div class="toolbar-row">
             <div class="toolbar-group">
               <button id="load-sample-button" class="button">Load Sample</button>
               <button id="close-all-button" class="button">Close All</button>
@@ -42,59 +48,69 @@
           <div id="editor" class="editor-surface" aria-label="dice editor"></div>
         </section>
 
-        <section class="panel panel-results">
+        <section class="results-panel">
           <div class="results-header">
-            <strong>Results</strong>
-            <span id="result-kind" class="pill">idle</span>
-          </div>
-
-          <div id="diagnostic-panel" class="diagnostic-panel" hidden>
-            <h3>Diagnostic</h3>
-            <pre id="diagnostic-output"></pre>
-          </div>
-
-          <div id="chart-panel" class="chart-panel">
-            <div class="chart-empty" id="chart-empty">
-              Run a program to render bars, lines, or heatmaps here.
-            </div>
-            <div id="chart-output"></div>
-          </div>
-
-          <div class="output-section">
-            <div class="output-tabs" role="tablist" aria-label="Result output">
+            <div class="result-tabs" role="tablist" aria-label="Result views">
               <button
-                id="text-tab"
+                id="charts-tab"
                 type="button"
-                class="output-tab"
+                class="result-tab"
                 role="tab"
-                aria-controls="text-panel"
+                aria-controls="chart-panel"
                 aria-selected="false"
-                data-output-tab="text"
+                data-result-tab="charts"
               >
-                Text
+                Charts
+              </button>
+              <button
+                id="raw-tab"
+                type="button"
+                class="result-tab"
+                role="tab"
+                aria-controls="raw-panel"
+                aria-selected="false"
+                data-result-tab="raw"
+              >
+                Raw
               </button>
               <button
                 id="json-tab"
                 type="button"
-                class="output-tab"
+                class="result-tab"
                 role="tab"
                 aria-controls="json-panel"
                 aria-selected="false"
-                data-output-tab="json"
+                data-result-tab="json"
               >
-                JSON
+                Json
               </button>
             </div>
-
-            <div id="output-panel" class="output-panel" hidden>
-              <article id="text-panel" class="subpanel output-subpanel" role="tabpanel" hidden>
-                <pre id="text-output"></pre>
-              </article>
-              <article id="json-panel" class="subpanel output-subpanel" role="tabpanel" hidden>
-                <pre id="json-output"></pre>
-              </article>
-            </div>
           </div>
+
+          <div id="diagnostic-panel" class="diagnostic-panel" hidden>
+            <div class="section-title">Diagnostic</div>
+            <pre id="diagnostic-output"></pre>
+          </div>
+
+          <section id="chart-panel" class="result-view chart-panel" role="tabpanel">
+            <div class="section-header">
+              <div class="section-title">Chart</div>
+            </div>
+            <div class="chart-body">
+              <div class="chart-empty" id="chart-empty">
+                Run a program to render bars, lines, or heatmaps here.
+              </div>
+              <div id="chart-output"></div>
+            </div>
+          </section>
+
+          <article id="raw-panel" class="result-view subpanel output-subpanel" role="tabpanel" hidden>
+            <pre id="text-output"></pre>
+          </article>
+
+          <article id="json-panel" class="result-view subpanel output-subpanel" role="tabpanel" hidden>
+            <pre id="json-output"></pre>
+          </article>
         </section>
       </main>
     </div>

@@ -22,17 +22,17 @@ const diagnosticPanel = document.querySelector("#diagnostic-panel");
 const diagnosticOutput = document.querySelector("#diagnostic-output");
 const chartOutput = document.querySelector("#chart-output");
 const chartEmpty = document.querySelector("#chart-empty");
-const resultKind = document.querySelector("#result-kind");
+const chartPanel = document.querySelector("#chart-panel");
+const resultsPanel = document.querySelector(".results-panel");
 const editorSurface = document.querySelector("#editor");
 const fileTabs = document.querySelector("#file-tabs");
 const sampleDialog = document.querySelector("#sample-dialog");
 const sampleDialogSelect = document.querySelector("#sample-dialog-select");
 const sampleDialogConfirm = document.querySelector("#sample-dialog-confirm");
-const outputSection = document.querySelector(".output-section");
-const outputPanel = document.querySelector("#output-panel");
-const outputTabs = Array.from(document.querySelectorAll("[data-output-tab]"));
-const outputPanels = {
-  text: document.querySelector("#text-panel"),
+const resultTabs = Array.from(document.querySelectorAll("[data-result-tab]"));
+const resultPanels = {
+  charts: chartPanel,
+  raw: document.querySelector("#raw-panel"),
   json: document.querySelector("#json-panel"),
 };
 
@@ -42,7 +42,9 @@ let saveUrlTimer = null;
 let suppressEditorSync = false;
 let fallbackTextarea = null;
 let aceEditor = null;
-let activeOutputTab = null;
+let activeResultTab = "charts";
+let editorResizeFrame = 0;
+let editorResizeObserver = null;
 
 let activeWorkspace = createWorkspace({
   files: { "main.dice": loadSavedSource() },
@@ -122,6 +124,35 @@ function setEditorValue(value) {
   suppressEditorSync = false;
 }
 
+function syncEditorLayout() {
+  if (!aceEditor) {
+    return;
+  }
+  if (editorResizeFrame) {
+    window.cancelAnimationFrame(editorResizeFrame);
+  }
+  editorResizeFrame = window.requestAnimationFrame(() => {
+    editorResizeFrame = 0;
+    aceEditor.resize(true);
+  });
+}
+
+function installEditorResizeHandling() {
+  const handleResize = () => {
+    syncEditorLayout();
+  };
+
+  window.addEventListener("resize", handleResize);
+  window.visualViewport?.addEventListener("resize", handleResize);
+
+  if ("ResizeObserver" in window) {
+    editorResizeObserver = new ResizeObserver(() => {
+      syncEditorLayout();
+    });
+    editorResizeObserver.observe(editorSurface);
+  }
+}
+
 function syncActiveFileFromEditor() {
   if (suppressEditorSync) {
     return;
@@ -170,7 +201,7 @@ function basename(path) {
 }
 
 function setResultState(state) {
-  resultKind.textContent = state;
+  resultsPanel.dataset.state = state;
 }
 
 function buildShareUrl() {
@@ -351,6 +382,8 @@ function initializeEditor() {
       syncActiveFileFromEditor();
     });
     setEditorValue(currentSource());
+    installEditorResizeHandling();
+    syncEditorLayout();
     return;
   }
 
@@ -1236,21 +1269,17 @@ function renderCharts(charts) {
   chartEmpty.hidden = renderedAny || items.length > 0;
 }
 
-function setActiveOutputTab(nextTab) {
-  activeOutputTab = nextTab;
-  const isOpen = Boolean(activeOutputTab);
+function setActiveResultTab(nextTab) {
+  activeResultTab = nextTab;
 
-  outputSection.classList.toggle("is-collapsed", !isOpen);
-  outputPanel.hidden = !isOpen;
-
-  outputTabs.forEach((button) => {
-    const isActive = button.dataset.outputTab === activeOutputTab;
+  resultTabs.forEach((button) => {
+    const isActive = button.dataset.resultTab === activeResultTab;
     button.classList.toggle("is-active", isActive);
     button.setAttribute("aria-selected", String(isActive));
   });
 
-  Object.entries(outputPanels).forEach(([name, panel]) => {
-    panel.hidden = !isOpen || name !== activeOutputTab;
+  Object.entries(resultPanels).forEach(([name, panel]) => {
+    panel.hidden = name !== activeResultTab;
   });
 }
 
@@ -1375,10 +1404,9 @@ sampleDialogConfirm.addEventListener("click", () => {
   sampleDialog.returnValue = "default";
 });
 
-outputTabs.forEach((button) => {
+resultTabs.forEach((button) => {
   button.addEventListener("click", () => {
-    const nextTab = button.dataset.outputTab;
-    setActiveOutputTab(activeOutputTab === nextTab ? null : nextTab);
+    setActiveResultTab(button.dataset.resultTab);
   });
 });
 
@@ -1427,7 +1455,7 @@ snippetSelect.addEventListener("change", () => {
 });
 
 refreshSnippetSelect();
-setActiveOutputTab(null);
+setActiveResultTab("charts");
 textOutput.textContent = "";
 jsonOutput.textContent = "";
 chartOutput.replaceChildren();
