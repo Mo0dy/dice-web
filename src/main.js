@@ -396,11 +396,25 @@ function renderSvgChart(contentBuilder) {
   const wrapper = document.createElement("div");
   wrapper.className = "chart-stack";
   const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-  svg.setAttribute("viewBox", "0 0 720 340");
+  svg.setAttribute("viewBox", "0 0 760 380");
   svg.setAttribute("class", "chart-svg");
   wrapper.appendChild(svg);
   contentBuilder(svg);
   return wrapper;
+}
+
+function appendSvgLine(svg, x1, y1, x2, y2, className, attributes = {}) {
+  const node = document.createElementNS("http://www.w3.org/2000/svg", "line");
+  node.setAttribute("x1", x1);
+  node.setAttribute("y1", y1);
+  node.setAttribute("x2", x2);
+  node.setAttribute("y2", y2);
+  node.setAttribute("class", className);
+  for (const [key, value] of Object.entries(attributes)) {
+    node.setAttribute(key, value);
+  }
+  svg.appendChild(node);
+  return node;
 }
 
 function appendSvgText(svg, x, y, text, className, attributes = {}) {
@@ -416,42 +430,180 @@ function appendSvgText(svg, x, y, text, className, attributes = {}) {
   return node;
 }
 
+function formatTickValue(value) {
+  if (!Number.isFinite(value)) {
+    return String(value);
+  }
+  if (value === 0) {
+    return "0";
+  }
+  const absolute = Math.abs(value);
+  if (absolute >= 100) {
+    return String(Math.round(value));
+  }
+  if (absolute >= 10) {
+    return value.toFixed(1).replace(/\.0$/, "");
+  }
+  if (absolute >= 1) {
+    return value.toFixed(2).replace(/0+$/, "").replace(/\.$/, "");
+  }
+  return value.toFixed(4).replace(/0+$/, "").replace(/\.$/, "");
+}
+
+function niceStep(rawStep) {
+  if (!Number.isFinite(rawStep) || rawStep <= 0) {
+    return 1;
+  }
+  const exponent = 10 ** Math.floor(Math.log10(rawStep));
+  const fraction = rawStep / exponent;
+  if (fraction <= 1) {
+    return exponent;
+  }
+  if (fraction <= 2) {
+    return 2 * exponent;
+  }
+  if (fraction <= 5) {
+    return 5 * exponent;
+  }
+  return 10 * exponent;
+}
+
+function buildLinearScale(minValue, maxValue, options = {}) {
+  const { includeZero = false, targetTicks = 5 } = options;
+  let min = minValue;
+  let max = maxValue;
+
+  if (includeZero) {
+    min = Math.min(min, 0);
+    max = Math.max(max, 0);
+  }
+
+  if (min === max) {
+    const padding = min === 0 ? 1 : Math.abs(min) * 0.1;
+    min -= padding;
+    max += padding;
+  }
+
+  const rawStep = (max - min) / Math.max(targetTicks - 1, 1);
+  const step = niceStep(rawStep);
+  const niceMin = includeZero && min >= 0 ? 0 : Math.floor(min / step) * step;
+  const niceMax = Math.ceil(max / step) * step;
+  const ticks = [];
+
+  for (let value = niceMin; value <= niceMax + step / 2; value += step) {
+    ticks.push(Number(value.toFixed(10)));
+  }
+
+  return {
+    min: niceMin,
+    max: niceMax,
+    ticks,
+  };
+}
+
+function valueToY(value, scale, top, height) {
+  const ratio = scale.max === scale.min ? 0 : (value - scale.min) / (scale.max - scale.min);
+  return top + height - ratio * height;
+}
+
+function categoryTickStep(categories, width) {
+  const longest = Math.max(...categories.map((category) => String(category).length), 1);
+  const estimatedWidth = longest * 7;
+  const availableWidth = width / Math.max(categories.length, 1);
+  return Math.max(1, Math.ceil(estimatedWidth / Math.max(availableWidth, 1)));
+}
+
+function shouldRotateCategoryLabels(categories, width, step) {
+  if (categories.length <= 1) {
+    return false;
+  }
+  const longest = Math.max(...categories.map((category) => String(category).length), 1);
+  const availableWidth = width / Math.max(Math.ceil(categories.length / step), 1);
+  return longest * 7 > availableWidth;
+}
+
+function drawChartAxes(svg, options) {
+  const { left, top, width, height, bottom, scale, categories, xLabel, yLabel } = options;
+  const right = left + width;
+  const yAxisCenter = top + height / 2;
+  const tickStep = categoryTickStep(categories, width);
+  const rotateXLabels = shouldRotateCategoryLabels(categories, width, tickStep);
+  const xTickY = bottom + (rotateXLabels ? 32 : 20);
+  const xLabelY = rotateXLabels ? 362 : 344;
+
+  scale.ticks.forEach((tick) => {
+    const y = valueToY(tick, scale, top, height);
+    appendSvgLine(svg, left, y, right, y, tick === 0 ? "chart-axis-line" : "chart-tick-line");
+    appendSvgText(svg, left - 10, y + 4, formatTickValue(tick), "chart-tick", {
+      "text-anchor": "end",
+    });
+  });
+
+  appendSvgLine(svg, left, top, left, bottom, "chart-axis-line");
+  appendSvgLine(svg, left, bottom, right, bottom, "chart-axis-line");
+
+  const xStep = categories.length > 1 ? width / (categories.length - 1) : 0;
+  const barStep = categories.length > 0 ? width / categories.length : width;
+  const anchorMode = categories.length > 1 ? "line" : "bar";
+
+  categories.forEach((category, index) => {
+    if (index % tickStep !== 0 && index !== categories.length - 1) {
+      return;
+    }
+    const x = anchorMode === "line" ? left + index * xStep : left + index * barStep + barStep / 2;
+    const attributes = rotateXLabels
+      ? {
+          "text-anchor": "end",
+          transform: `rotate(-35 ${x} ${xTickY})`,
+        }
+      : { "text-anchor": "middle" };
+    appendSvgText(svg, x, xTickY, String(category), "chart-tick", attributes);
+  });
+
+  appendSvgText(svg, left + width / 2, xLabelY, xLabel, "chart-axis-label", {
+    "text-anchor": "middle",
+  });
+  appendSvgText(svg, 20, yAxisCenter, yLabel, "chart-axis-label", {
+    "text-anchor": "middle",
+    transform: `rotate(-90 20 ${yAxisCenter})`,
+  });
+
+  return { rotateXLabels };
+}
+
 function renderBarChart(chart) {
   return renderSvgChart((svg) => {
-    const left = 64;
-    const bottom = 288;
-    const width = 600;
-    const height = 220;
+    const left = 76;
+    const width = 620;
+    const height = 222;
+    const maxSeriesValue = Math.max(...chart.series.flatMap((series) => series.values), 0);
+    const scale = buildLinearScale(0, maxSeriesValue === 0 ? 1 : maxSeriesValue * 1.08, { includeZero: true });
+    const top = 38;
+    const bottom = top + height;
     const allValues = chart.series.flatMap((series) => series.values);
-    const maxValue = Math.max(...allValues, 1);
     const barWidth = width / chart.categories.length;
     const palette = ["#b65c3a", "#3b6c8e", "#6f8a42", "#8a4f7d"];
     const seriesCount = chart.series.length;
     const innerBarWidth = Math.max((barWidth - 18) / seriesCount, 6);
-
-    const axis = document.createElementNS("http://www.w3.org/2000/svg", "line");
-    axis.setAttribute("x1", left);
-    axis.setAttribute("y1", bottom);
-    axis.setAttribute("x2", left + width);
-    axis.setAttribute("y2", bottom);
-    axis.setAttribute("class", "chart-axis-line");
-    svg.appendChild(axis);
-
-    const yAxis = document.createElementNS("http://www.w3.org/2000/svg", "line");
-    yAxis.setAttribute("x1", left);
-    yAxis.setAttribute("y1", bottom);
-    yAxis.setAttribute("x2", left);
-    yAxis.setAttribute("y2", bottom - height);
-    yAxis.setAttribute("class", "chart-axis-line");
-    svg.appendChild(yAxis);
+    drawChartAxes(svg, {
+      left,
+      top,
+      width,
+      height,
+      bottom,
+      scale,
+      categories: chart.categories,
+      xLabel: chart.spec.x_label,
+      yLabel: chart.spec.y_label,
+    });
 
     chart.series.forEach((series, seriesIndex) => {
       series.values.forEach((value, index) => {
-        const normalized = value / maxValue;
-        const barHeight = height * normalized;
+        const y = valueToY(value, scale, top, height);
+        const barHeight = bottom - y;
         const rect = document.createElementNS("http://www.w3.org/2000/svg", "rect");
         rect.setAttribute("x", left + index * barWidth + 8 + innerBarWidth * seriesIndex);
-        rect.setAttribute("y", bottom - barHeight);
+        rect.setAttribute("y", y);
         rect.setAttribute("width", innerBarWidth - 2);
         rect.setAttribute("height", barHeight);
         rect.setAttribute("rx", "6");
@@ -460,70 +612,50 @@ function renderBarChart(chart) {
       });
     });
 
-    chart.categories.forEach((category, index) => {
-      appendSvgText(
-        svg,
-        left + index * barWidth + barWidth / 2,
-        bottom + 20,
-        String(category),
-        "chart-tick",
-        { "text-anchor": "middle" },
-      );
-    });
-
-    chart.series.forEach((series, index) => {
-      appendSvgText(svg, left + 8, 24 + index * 18, series.name, "chart-series-label", {
-        fill: palette[index % palette.length],
+    if (chart.series.length > 1) {
+      chart.series.forEach((series, index) => {
+        appendSvgText(svg, left + 8, 24 + index * 18, series.name, "chart-series-label", {
+          fill: palette[index % palette.length],
+        });
       });
-    });
-
-    appendSvgText(svg, left + width / 2, 328, chart.spec.x_label, "chart-axis-label", {
-      "text-anchor": "middle",
-    });
-    appendSvgText(svg, 20, 22, chart.spec.y_label, "chart-axis-label");
+    }
   });
 }
 
 function renderLineChart(chart) {
   return renderSvgChart((svg) => {
-    const left = 64;
-    const bottom = 288;
-    const width = 600;
-    const height = 220;
+    const left = 76;
+    const width = 620;
+    const height = 222;
     const values = chart.series.flatMap((series) => series.values);
-    const minValue = Math.min(...values);
+    const probabilitySeries = chart.spec.y_label.toLowerCase().includes("probability");
+    const minValue = probabilitySeries ? 0 : Math.min(...values);
     const maxValue = Math.max(...values);
+    const scale = buildLinearScale(
+      minValue,
+      maxValue === minValue ? maxValue + 1 : maxValue * (probabilitySeries ? 1.08 : 1.02),
+      { includeZero: probabilitySeries },
+    );
+    const top = 38;
+    const bottom = top + height;
     const xStep = chart.categories.length > 1 ? width / (chart.categories.length - 1) : width;
-    const yRange = maxValue - minValue || 1;
     const palette = ["#b65c3a", "#3b6c8e", "#6f8a42", "#8a4f7d"];
-
-    const axis = document.createElementNS("http://www.w3.org/2000/svg", "line");
-    axis.setAttribute("x1", left);
-    axis.setAttribute("y1", bottom);
-    axis.setAttribute("x2", left + width);
-    axis.setAttribute("y2", bottom);
-    axis.setAttribute("class", "chart-axis-line");
-    svg.appendChild(axis);
-
-    const yAxis = document.createElementNS("http://www.w3.org/2000/svg", "line");
-    yAxis.setAttribute("x1", left);
-    yAxis.setAttribute("y1", bottom);
-    yAxis.setAttribute("x2", left);
-    yAxis.setAttribute("y2", bottom - height);
-    yAxis.setAttribute("class", "chart-axis-line");
-    svg.appendChild(yAxis);
-
-    chart.categories.forEach((category, index) => {
-      const x = left + index * xStep;
-      appendSvgText(svg, x, bottom + 20, String(category), "chart-tick", {
-        "text-anchor": "middle",
-      });
+    drawChartAxes(svg, {
+      left,
+      top,
+      width,
+      height,
+      bottom,
+      scale,
+      categories: chart.categories,
+      xLabel: chart.spec.x_label,
+      yLabel: chart.spec.y_label,
     });
 
     chart.series.forEach((series, seriesIndex) => {
       const points = series.values.map((value, index) => {
         const x = left + index * xStep;
-        const y = bottom - ((value - minValue) / yRange) * height;
+        const y = valueToY(value, scale, top, height);
         const circle = document.createElementNS("http://www.w3.org/2000/svg", "circle");
         circle.setAttribute("cx", x);
         circle.setAttribute("cy", y);
@@ -539,16 +671,15 @@ function renderLineChart(chart) {
       polyline.setAttribute("stroke", palette[seriesIndex % palette.length]);
       polyline.setAttribute("stroke-width", "3");
       svg.appendChild(polyline);
+    });
 
-      appendSvgText(svg, left + 8, 24 + seriesIndex * 18, series.name, "chart-series-label", {
-        fill: palette[seriesIndex % palette.length],
+    if (chart.series.length > 1) {
+      chart.series.forEach((series, seriesIndex) => {
+        appendSvgText(svg, left + 8, 24 + seriesIndex * 18, series.name, "chart-series-label", {
+          fill: palette[seriesIndex % palette.length],
+        });
       });
-    });
-
-    appendSvgText(svg, left + width / 2, 328, chart.spec.x_label, "chart-axis-label", {
-      "text-anchor": "middle",
-    });
-    appendSvgText(svg, 20, 22, chart.spec.y_label, "chart-axis-label");
+    }
   });
 }
 

@@ -37,6 +37,15 @@ class WebBridgeTest(unittest.TestCase):
         self.assertEqual(render["categories"], [10, 11, 12])
         self.assertEqual(render["series"][0]["values"], [10, 11, 12])
 
+    def test_render_payload_uses_mean_for_bernoulli_sweeps(self):
+        payload = webbridge.evaluate("d20 >= [ac:18, 19, 20]")
+        self.assertTrue(payload["ok"])
+        render = webbridge.render_payload(payload, settings={"probability_mode": "percent"})
+        self.assertEqual(render["kind"], "line")
+        self.assertEqual(render["spec"]["y_label"], "Probability (%)")
+        self.assertEqual(render["categories"], [18, 19, 20])
+        self.assertEqual(render["series"][0]["values"], [15.0, 10.0, 5.0])
+
     def test_list_symbols_exposes_builtins_and_stdlib(self):
         symbols = webbridge.list_symbols()
         builtin_names = {entry["name"] for entry in symbols["builtins"]}

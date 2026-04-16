@@ -453,6 +453,19 @@ def _all_scalar_cells(payload):
     return all(_distribution_is_scalar(cell["distribution"]) for cell in payload["cells"])
 
 
+def _distribution_is_bernoulli(entries):
+    outcomes = {entry["outcome"] for entry in entries}
+    return bool(outcomes) and outcomes.issubset({0, 1})
+
+
+def _distribution_mean_value(entries):
+    return sum(entry["outcome"] * entry["probability"] for entry in entries if _is_numeric(entry["outcome"]))
+
+
+def _all_bernoulli_cells(payload):
+    return all(_distribution_is_bernoulli(cell["distribution"]) for cell in payload["cells"])
+
+
 def _cell_lookup(payload):
     lookup = {}
     for cell in payload["cells"]:
@@ -516,6 +529,27 @@ def _render_payload_from_distributions(payload, probability_mode):
                     }
                 ],
             }
+        if _all_bernoulli_cells(payload):
+            lookup = _cell_lookup(payload)
+            return {
+                "kind": "line",
+                "spec": {
+                    "kind": "line",
+                    "x_label": _render_axis_name(axis, 0),
+                    "y_label": _render_y_label("bar", probability_mode),
+                    "series_labels": [],
+                },
+                "categories": list(axis["values"]),
+                "series": [
+                    {
+                        "name": "Probability",
+                        "values": [
+                            _round_numeric(_distribution_mean_value(lookup[(x_value,)]["distribution"]) * scale, 6)
+                            for x_value in axis["values"]
+                        ],
+                    }
+                ],
+            }
         lookup = _cell_lookup(payload)
         outcomes = _ordered_labels(
             {
@@ -552,7 +586,7 @@ def _render_payload_from_distributions(payload, probability_mode):
             "matrix": matrix,
             "color_label": _render_y_label("heatmap_distribution", probability_mode),
         }
-    if len(axes) == 2 and _all_scalar_cells(payload):
+    if len(axes) == 2 and (_all_scalar_cells(payload) or _all_bernoulli_cells(payload)):
         y_axis = axes[0]
         x_axis = axes[1]
         lookup = _cell_lookup(payload)
@@ -560,7 +594,11 @@ def _render_payload_from_distributions(payload, probability_mode):
         for y_value in y_axis["values"]:
             row = []
             for x_value in x_axis["values"]:
-                row.append(_distribution_scalar_value(lookup[(y_value, x_value)]["distribution"]))
+                distribution = lookup[(y_value, x_value)]["distribution"]
+                if _distribution_is_scalar(distribution):
+                    row.append(_distribution_scalar_value(distribution))
+                else:
+                    row.append(_round_numeric(_distribution_mean_value(distribution) * scale, 6))
             matrix.append(row)
         return {
             "kind": "heatmap_scalar",
@@ -573,7 +611,7 @@ def _render_payload_from_distributions(payload, probability_mode):
             "x_values": list(x_axis["values"]),
             "y_values": list(y_axis["values"]),
             "matrix": matrix,
-            "color_label": "Value",
+            "color_label": "Value" if _all_scalar_cells(payload) else _render_y_label("heatmap_distribution", probability_mode),
         }
     return None
 

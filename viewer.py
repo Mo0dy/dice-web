@@ -68,6 +68,19 @@ def _all_scalar(result):
     return all(_is_scalar_distribution(distrib) for distrib in result.cells.values())
 
 
+def _is_bernoulli_distribution(distrib):
+    outcomes = set(distrib.keys())
+    return bool(outcomes) and outcomes.issubset({0, 1})
+
+
+def _distribution_mean(distrib):
+    return sum(outcome * probability for outcome, probability in distrib.items() if isinstance(outcome, (int, float)))
+
+
+def _all_bernoulli(result):
+    return all(_is_bernoulli_distribution(distrib) for distrib in result.cells.values())
+
+
 def _common_axis_name(results):
     if not results:
         return "Sweep 1"
@@ -105,8 +118,10 @@ def build_render_spec(result):
         axis_name = _fallback_axis_name(result.axes[0], 0)
         if _all_scalar(result):
             return RenderSpec("line", axis_name, "Value")
+        if _all_bernoulli(result):
+            return RenderSpec("line", axis_name, "Probability")
         return RenderSpec("heatmap_distribution", axis_name, "Outcome")
-    if len(result.axes) == 2 and _all_scalar(result):
+    if len(result.axes) == 2 and (_all_scalar(result) or _all_bernoulli(result)):
         return RenderSpec(
             "heatmap_scalar",
             _fallback_axis_name(result.axes[1], 1),
@@ -126,6 +141,10 @@ def build_comparison_spec(entries):
     if all(len(result.axes) == 1 and _all_scalar(result) for result in results):
         _validate_same_axis_values(results)
         return RenderSpec("compare_line", _common_axis_name(results), "Value", tuple(labels)), results
+
+    if all(len(result.axes) == 1 and _all_bernoulli(result) for result in results):
+        _validate_same_axis_values(results)
+        return RenderSpec("compare_line", _common_axis_name(results), "Probability", tuple(labels)), results
 
     raise Exception("Viewer exception: render comparison only supports unswept distributions or one-sweep scalar results")
 
@@ -153,13 +172,14 @@ def render_result(result, label=None, x_label=None, title=None, render_config=No
     result = _coerce_to_distributions(result)
     spec = build_render_spec(result)
     scale = _probability_scale(render_config)
+    probability_line = spec.kind == "line" and _all_bernoulli(result)
 
     payload = {
         "kind": spec.kind,
         "spec": {
             "kind": spec.kind,
             "x_label": x_label if x_label is not None else spec.x_label,
-            "y_label": spec.y_label if spec.kind != "bar" else _probability_label(render_config),
+            "y_label": _probability_label(render_config) if spec.kind == "bar" or probability_line else spec.y_label,
             "series_labels": list(spec.series_labels),
         },
         "title": title,
@@ -181,8 +201,11 @@ def render_result(result, label=None, x_label=None, title=None, render_config=No
         payload["categories"] = list(axis.values)
         payload["series"] = [
             {
-                "name": label or "Value",
-                "values": [_scalar_value(lookup[(value,)]) for value in axis.values],
+                "name": label or spec.y_label,
+                "values": [
+                    (_scalar_value(lookup[(value,)]) if _all_scalar(result) else _distribution_mean(lookup[(value, )]) * scale)
+                    for value in axis.values
+                ],
             }
         ]
     elif spec.kind == "heatmap_distribution":
@@ -213,12 +236,13 @@ def render_result(result, label=None, x_label=None, title=None, render_config=No
         for y_value in y_axis.values:
             row = []
             for x_value in x_axis.values:
-                row.append(_scalar_value(lookup[(y_value, x_value)]))
+                distrib = lookup[(y_value, x_value)]
+                row.append(_scalar_value(distrib) if _all_scalar(result) else _distribution_mean(distrib) * scale)
             matrix.append(row)
         payload["x_values"] = list(x_axis.values)
         payload["y_values"] = list(y_axis.values)
         payload["matrix"] = matrix
-        payload["color_label"] = "Value"
+        payload["color_label"] = "Value" if _all_scalar(result) else _probability_label(render_config)
     else:
         raise Exception("Viewer exception: unsupported render kind {}".format(spec.kind))
 
@@ -229,12 +253,13 @@ def render_result(result, label=None, x_label=None, title=None, render_config=No
 def render_comparison(entries, x_label=None, title=None, render_config=None):
     spec, results = build_comparison_spec(entries)
     scale = _probability_scale(render_config)
+    probability_line = spec.kind == "compare_line" and all(_all_bernoulli(result) for result in results)
     payload = {
         "kind": spec.kind,
         "spec": {
             "kind": spec.kind,
             "x_label": x_label if x_label is not None else spec.x_label,
-            "y_label": spec.y_label if spec.kind != "compare_bar" else _probability_label(render_config),
+            "y_label": _probability_label(render_config) if spec.kind == "compare_bar" or probability_line else spec.y_label,
             "series_labels": list(spec.series_labels),
         },
         "title": title,
@@ -266,7 +291,10 @@ def render_comparison(entries, x_label=None, title=None, render_config=None):
             payload["series"].append(
                 {
                     "name": label,
-                    "values": [_scalar_value(result.cells[(value,)]) for value in x_values],
+                    "values": [
+                        (_scalar_value(result.cells[(value,)]) if _all_scalar(result) else _distribution_mean(result.cells[(value,)]) * scale)
+                        for value in x_values
+                    ],
                 }
             )
     else:
