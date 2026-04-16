@@ -1,0 +1,15 @@
+{
+  "files": [
+    "diagnostics.py",
+    "diceengine.py",
+    "diceparser.py",
+    "executor.py",
+    "interpreter.py",
+    "lexer.py",
+    "stdlib/dnd/core.dice",
+    "stdlib/dnd/spells.dice",
+    "stdlib/dnd/weapons.dice",
+    "syntaxtree.py",
+    "webbridge.py"
+  ]
+}

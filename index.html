@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>dice-web</title>
+    <meta
+      name="description"
+      content="Run the dice language directly in the browser with Pyodide."
+    />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600;9..144,700&family=IBM+Plex+Mono:wght@400;500&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="./styles/app.css" />
+  </head>
+  <body>
+    <div class="page-shell">
+      <header class="hero">
+        <div>
+          <p class="eyebrow">Browser Runtime</p>
+          <h1>dice-web</h1>
+          <p class="hero-copy">
+            A static, worker-backed playground for the dice language. The UI stays
+            responsive, the runtime stays isolated, and plotting stays web-native.
+          </p>
+        </div>
+        <div class="status-card">
+          <span class="status-label">Runtime</span>
+          <strong id="runtime-status">Booting Pyodide…</strong>
+          <p id="runtime-detail">Copy the runtime with <code>scripts/sync-runtime.sh</code> before serving the site.</p>
+        </div>
+      </header>
+
+      <main class="workspace">
+        <section class="panel panel-editor">
+          <div class="panel-header">
+            <div>
+              <p class="panel-label">Editor</p>
+              <h2>One-file playground</h2>
+            </div>
+            <div class="toolbar">
+              <button id="run-button" class="button button-primary">Run</button>
+              <button id="share-button" class="button">Copy Share URL</button>
+            </div>
+          </div>
+
+          <div class="toolbar toolbar-secondary">
+            <label class="snippet-field">
+              <span>Snippet</span>
+              <select id="snippet-select"></select>
+            </label>
+            <button id="save-snippet-button" class="button">Save</button>
+            <button id="delete-snippet-button" class="button button-danger">Delete</button>
+          </div>
+
+          <div id="editor" class="editor-surface" aria-label="dice editor"></div>
+        </section>
+
+        <section class="panel panel-results">
+          <div class="panel-header">
+            <div>
+              <p class="panel-label">Results</p>
+              <h2>Structured output</h2>
+            </div>
+            <div class="meta-list">
+              <span id="result-kind" class="pill">idle</span>
+              <span id="builtin-count" class="pill pill-muted">0 builtins</span>
+            </div>
+          </div>
+
+          <div id="diagnostic-panel" class="diagnostic-panel" hidden>
+            <h3>Diagnostic</h3>
+            <pre id="diagnostic-output"></pre>
+          </div>
+
+          <div id="chart-panel" class="chart-panel">
+            <div class="chart-empty" id="chart-empty">
+              Run a program to render bars, lines, or heatmaps here.
+            </div>
+            <div id="chart-output"></div>
+          </div>
+
+          <div class="result-grid">
+            <article class="subpanel">
+              <h3>Text</h3>
+              <pre id="text-output"></pre>
+            </article>
+            <article class="subpanel">
+              <h3>JSON</h3>
+              <pre id="json-output"></pre>
+            </article>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/ace/1.32.6/ace.js" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+    <script type="module" src="./src/main.js"></script>
+  </body>
+</html>
