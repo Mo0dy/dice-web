@@ -46,6 +46,12 @@ class WebBridgeTest(unittest.TestCase):
         self.assertEqual(render["categories"], [18, 19, 20])
         self.assertEqual(render["series"][0]["values"], [15.0, 10.0, 5.0])
 
+    def test_render_statements_use_percent_probabilities(self):
+        payload = webbridge.evaluate("render(d2)")
+        self.assertTrue(payload["ok"])
+        self.assertEqual(payload["renders"][0]["spec"]["y_label"], "Probability (%)")
+        self.assertEqual(payload["renders"][0]["series"][0]["values"], [50.0, 50.0])
+
     def test_list_symbols_exposes_builtins_and_stdlib(self):
         symbols = webbridge.list_symbols()
         builtin_names = {entry["name"] for entry in symbols["builtins"]}

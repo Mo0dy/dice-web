@@ -904,7 +904,7 @@ def evaluate(source, files=None, settings=None):
             interpreter = Interpreter(
                 ast,
                 current_dir=current_dir,
-                render_config=RenderConfig.from_mode("nonblocking").with_probability_mode("raw"),
+                render_config=RenderConfig.from_mode("nonblocking").with_probability_mode("percent"),
             )
             result = interpreter.interpret()
         except Exception as error:

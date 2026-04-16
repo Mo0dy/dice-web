@@ -395,11 +395,15 @@ function interpolateColor(value, maxValue) {
 function renderSvgChart(contentBuilder) {
   const wrapper = document.createElement("div");
   wrapper.className = "chart-stack";
+  const tooltip = document.createElement("div");
+  tooltip.className = "chart-tooltip";
+  tooltip.hidden = true;
   const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
   svg.setAttribute("viewBox", "0 0 760 380");
   svg.setAttribute("class", "chart-svg");
   wrapper.appendChild(svg);
-  contentBuilder(svg);
+  wrapper.appendChild(tooltip);
+  contentBuilder(svg, createTooltipController(wrapper, tooltip));
   return wrapper;
 }
 
@@ -448,6 +452,62 @@ function formatTickValue(value) {
     return value.toFixed(2).replace(/0+$/, "").replace(/\.$/, "");
   }
   return value.toFixed(4).replace(/0+$/, "").replace(/\.$/, "");
+}
+
+function formatHoverValue(value, label) {
+  const formatted = formatTickValue(value);
+  return label && label.includes("%") ? `${formatted}%` : formatted;
+}
+
+function createTooltipController(wrapper, tooltip) {
+  function positionTooltip(event) {
+    const bounds = wrapper.getBoundingClientRect();
+    const offset = 12;
+    const tooltipWidth = tooltip.offsetWidth;
+    const tooltipHeight = tooltip.offsetHeight;
+    const pointerX = event.clientX - bounds.left;
+    const pointerY = event.clientY - bounds.top;
+
+    let left = pointerX + offset;
+    let top = pointerY + offset;
+
+    if (left + tooltipWidth > bounds.width - offset) {
+      left = pointerX - tooltipWidth - offset;
+    }
+    if (left < offset) {
+      left = offset;
+    }
+
+    if (top + tooltipHeight > bounds.height - offset) {
+      top = pointerY - tooltipHeight - offset;
+    }
+    if (top < offset) {
+      top = offset;
+    }
+
+    tooltip.style.left = `${left}px`;
+    tooltip.style.top = `${top}px`;
+  }
+
+  return {
+    attach(target, lines) {
+      const text = Array.isArray(lines) ? lines.join("\n") : String(lines);
+      target.addEventListener("pointerenter", (event) => {
+        tooltip.textContent = text;
+        tooltip.hidden = false;
+        positionTooltip(event);
+      });
+      target.addEventListener("pointermove", (event) => {
+        if (tooltip.hidden) {
+          return;
+        }
+        positionTooltip(event);
+      });
+      target.addEventListener("pointerleave", () => {
+        tooltip.hidden = true;
+      });
+    },
+  };
 }
 
 function niceStep(rawStep) {
@@ -572,7 +632,7 @@ function drawChartAxes(svg, options) {
 }
 
 function renderBarChart(chart) {
-  return renderSvgChart((svg) => {
+  return renderSvgChart((svg, tooltip) => {
     const left = 76;
     const width = 620;
     const height = 222;
@@ -608,6 +668,12 @@ function renderBarChart(chart) {
         rect.setAttribute("height", barHeight);
         rect.setAttribute("rx", "6");
         rect.setAttribute("fill", palette[seriesIndex % palette.length]);
+        const category = chart.categories[index];
+        tooltip.attach(rect, [
+          series.name,
+          `${chart.spec.x_label}: ${category}`,
+          `${chart.spec.y_label}: ${formatHoverValue(value, chart.spec.y_label)}`,
+        ]);
         svg.appendChild(rect);
       });
     });
@@ -623,7 +689,7 @@ function renderBarChart(chart) {
 }
 
 function renderLineChart(chart) {
-  return renderSvgChart((svg) => {
+  return renderSvgChart((svg, tooltip) => {
     const left = 76;
     const width = 620;
     const height = 222;
@@ -661,6 +727,11 @@ function renderLineChart(chart) {
         circle.setAttribute("cy", y);
         circle.setAttribute("r", "4");
         circle.setAttribute("fill", palette[seriesIndex % palette.length]);
+        tooltip.attach(circle, [
+          series.name,
+          `${chart.spec.x_label}: ${chart.categories[index]}`,
+          `${chart.spec.y_label}: ${formatHoverValue(value, chart.spec.y_label)}`,
+        ]);
         svg.appendChild(circle);
         return `${x},${y}`;
       });
@@ -686,6 +757,10 @@ function renderLineChart(chart) {
 function renderHeatmap(chart) {
   const wrapper = document.createElement("div");
   wrapper.className = "heatmap";
+  const tooltip = document.createElement("div");
+  tooltip.className = "chart-tooltip";
+  tooltip.hidden = true;
+  const tooltipController = createTooltipController(wrapper, tooltip);
 
   const caption = document.createElement("div");
   caption.className = "chart-caption";
@@ -714,16 +789,22 @@ function renderHeatmap(chart) {
     rowHeader.textContent = String(value);
     grid.appendChild(rowHeader);
 
-    chart.matrix[rowIndex].forEach((cellValue) => {
+    chart.matrix[rowIndex].forEach((cellValue, columnIndex) => {
       const cell = document.createElement("div");
       cell.className = "heatmap-cell";
       cell.style.background = interpolateColor(cellValue, maxValue);
       cell.textContent = Number.isFinite(cellValue) ? cellValue.toFixed(2) : String(cellValue);
+      tooltipController.attach(cell, [
+        `${chart.spec.x_label}: ${chart.x_values[columnIndex]}`,
+        `${chart.spec.y_label}: ${value}`,
+        `${chart.color_label}: ${formatHoverValue(cellValue, chart.color_label)}`,
+      ]);
       grid.appendChild(cell);
     });
   });
 
   wrapper.appendChild(grid);
+  wrapper.appendChild(tooltip);
   return wrapper;
 }
 
