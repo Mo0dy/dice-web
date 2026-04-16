@@ -78,16 +78,18 @@ async function ensureBooted() {
 
 async function handleEvaluate(params) {
   await ensureBooted();
+  const settings = {
+    roundlevel: 6,
+    probability_mode: "raw",
+    source_path: "main.dice",
+    ...(params.settings ?? {}),
+  };
   const payload = await callBridge("evaluate", {
     source: params.source,
     files: params.files ?? null,
-    settings: {
-      roundlevel: 6,
-      probability_mode: "raw",
-      source_path: "main.dice",
-    },
+    settings,
   });
-  if (payload.ok) {
+  if (payload.ok && (!payload.renders || payload.renders.length === 0)) {
     payload.render = await callBridge("render_payload", {
       result: payload.result,
       settings: { probability_mode: "percent" },
@@ -102,7 +104,22 @@ async function handleComplete(params) {
     source: params.source,
     cursor: params.cursor,
     files: params.files ?? null,
-    settings: { source_path: "main.dice" },
+    settings: {
+      source_path: "main.dice",
+      ...(params.settings ?? {}),
+    },
+  });
+}
+
+async function handleListSamples() {
+  await ensureBooted();
+  return callBridge("list_samples", {});
+}
+
+async function handleLoadSample(params) {
+  await ensureBooted();
+  return callBridge("load_sample", {
+    path: params.path,
   });
 }
 
@@ -116,6 +133,10 @@ self.addEventListener("message", async (event) => {
       result = await handleEvaluate(params ?? {});
     } else if (method === "complete") {
       result = await handleComplete(params ?? {});
+    } else if (method === "listSamples") {
+      result = await handleListSamples();
+    } else if (method === "loadSample") {
+      result = await handleLoadSample(params ?? {});
     } else if (method === "listSymbols") {
       result = await ensureBooted();
     } else {

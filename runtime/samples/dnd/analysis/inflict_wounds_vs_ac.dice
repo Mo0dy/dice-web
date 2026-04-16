@@ -1,0 +1,4 @@
+# Inflict Wounds expected damage across AC.
+import "../lib/spells.dice"
+
+~inflict_wounds([10:22], 7)

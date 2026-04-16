@@ -1,0 +1,4 @@
+# Magic missile auto-hits, so this is pure damage distribution.
+import "../lib/spells.dice"
+
+magic_missile(3)

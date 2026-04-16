@@ -1,0 +1,4 @@
+# Guiding Bolt expected damage across AC.
+import "../lib/spells.dice"
+
+~guiding_bolt([10:22], 7)

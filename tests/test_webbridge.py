@@ -66,6 +66,43 @@ class WebBridgeTest(unittest.TestCase):
         self.assertTrue(payload["ok"])
         self.assertEqual(payload["result"]["type"], "distributions")
 
+    def test_list_samples_exposes_runnable_dice_samples(self):
+        samples = webbridge.list_samples()
+        paths = {sample["path"] for sample in samples}
+        self.assertIn("dnd/analysis/eldritch_blast_vs_ac.dice", paths)
+        self.assertIn("dnd/at_table/longsword_attack.dice", paths)
+        self.assertNotIn("dnd/lib/weapons.dice", paths)
+
+    def test_load_sample_returns_workspace_package(self):
+        sample = webbridge.load_sample("dnd/analysis/eldritch_blast_vs_ac.dice")
+        self.assertEqual(sample["source_path"], "analysis/eldritch_blast_vs_ac.dice")
+        self.assertIn("lib/spells.dice", sample["files"])
+        self.assertIn('import "../lib/spells.dice"', sample["source"])
+
+    def test_all_runnable_samples_evaluate(self):
+        samples = webbridge.list_samples()
+        self.assertTrue(samples, "expected bundled samples")
+        for sample_info in samples:
+            with self.subTest(sample=sample_info["path"]):
+                sample = webbridge.load_sample(sample_info["path"])
+                payload = webbridge.evaluate(
+                    sample["source"],
+                    files=sample["files"],
+                    settings={"source_path": sample["source_path"]},
+                )
+                self.assertTrue(payload["ok"], payload.get("error"))
+
+    def test_render_statements_are_captured_as_browser_payloads(self):
+        sample = webbridge.load_sample("dnd/analysis/ability_scores_4d6h3.dice")
+        payload = webbridge.evaluate(
+            sample["source"],
+            files=sample["files"],
+            settings={"source_path": sample["source_path"]},
+        )
+        self.assertTrue(payload["ok"], payload.get("error"))
+        self.assertEqual(len(payload["renders"]), 6)
+        self.assertEqual(payload["renders"][0]["title"], "Single ability score distribution")
+
 
 if __name__ == "__main__":
     unittest.main()

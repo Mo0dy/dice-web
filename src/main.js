@@ -14,6 +14,8 @@ const runtimeDetail = document.querySelector("#runtime-detail");
 const builtinCount = document.querySelector("#builtin-count");
 const runButton = document.querySelector("#run-button");
 const shareButton = document.querySelector("#share-button");
+const sampleSelect = document.querySelector("#sample-select");
+const loadSampleButton = document.querySelector("#load-sample-button");
 const snippetSelect = document.querySelector("#snippet-select");
 const saveSnippetButton = document.querySelector("#save-snippet-button");
 const deleteSnippetButton = document.querySelector("#delete-snippet-button");
@@ -29,7 +31,13 @@ const editorSurface = document.querySelector("#editor");
 let rpcId = 0;
 let workerReady = false;
 let symbols = null;
+let samples = [];
 let saveUrlTimer = null;
+let activeWorkspace = {
+  sourcePath: "main.dice",
+  files: null,
+  samplePath: null,
+};
 
 const worker = new Worker(new URL("./worker.js", import.meta.url));
 const pendingRpc = new Map();
@@ -127,6 +135,14 @@ function loadSavedSource() {
   return saved || DEFAULT_SOURCE;
 }
 
+function resetWorkspace() {
+  activeWorkspace = {
+    sourcePath: "main.dice",
+    files: null,
+    samplePath: null,
+  };
+}
+
 function currentSource() {
   if (aceEditor) {
     return aceEditor.getValue();
@@ -147,6 +163,33 @@ function replaceSource(nextSource) {
 function persistSource(source) {
   window.localStorage.setItem(STORAGE_KEY, source);
   saveUrlState(source);
+}
+
+function refreshSampleSelect() {
+  const fragment = document.createDocumentFragment();
+
+  const blank = document.createElement("option");
+  blank.value = "";
+  blank.textContent = "Choose sample";
+  fragment.appendChild(blank);
+
+  let currentGroup = null;
+  let currentOptgroup = null;
+  for (const sample of samples) {
+    if (sample.group !== currentGroup) {
+      currentGroup = sample.group;
+      currentOptgroup = document.createElement("optgroup");
+      currentOptgroup.label = sample.group;
+      fragment.appendChild(currentOptgroup);
+    }
+    const option = document.createElement("option");
+    option.value = sample.path;
+    option.textContent = sample.name;
+    currentOptgroup.appendChild(option);
+  }
+
+  sampleSelect.replaceChildren(fragment);
+  sampleSelect.value = activeWorkspace.samplePath ?? "";
 }
 
 function loadSnippets() {
@@ -186,6 +229,11 @@ function refreshSnippetSelect() {
 function buildShareUrl(source) {
   const url = new URL(window.location.href);
   url.searchParams.set("code", source);
+  if (activeWorkspace.samplePath) {
+    url.searchParams.set("sample", activeWorkspace.samplePath);
+  } else {
+    url.searchParams.delete("sample");
+  }
   return url;
 }
 
@@ -270,7 +318,8 @@ function renderBarChart(chart) {
     const bottom = 288;
     const width = 600;
     const height = 220;
-    const maxValue = Math.max(...chart.series[0].values, 1);
+    const allValues = chart.series.flatMap((series) => series.values);
+    const maxValue = Math.max(...allValues, 1);
     const barWidth = width / chart.categories.length;
 
     const axis = document.createElementNS("http://www.w3.org/2000/svg", "line");
@@ -289,26 +338,39 @@ function renderBarChart(chart) {
     yAxis.setAttribute("class", "chart-axis-line");
     svg.appendChild(yAxis);
 
-    chart.series[0].values.forEach((value, index) => {
-      const normalized = value / maxValue;
-      const barHeight = height * normalized;
-      const rect = document.createElementNS("http://www.w3.org/2000/svg", "rect");
-      rect.setAttribute("x", left + index * barWidth + 8);
-      rect.setAttribute("y", bottom - barHeight);
-      rect.setAttribute("width", Math.max(barWidth - 16, 8));
-      rect.setAttribute("height", barHeight);
-      rect.setAttribute("rx", "8");
-      rect.setAttribute("class", "chart-bar");
-      svg.appendChild(rect);
+    const palette = ["#b65c3a", "#3b6c8e", "#6f8a42", "#8a4f7d"];
+    const seriesCount = chart.series.length;
+    const innerBarWidth = Math.max((barWidth - 18) / seriesCount, 6);
+    chart.series.forEach((series, seriesIndex) => {
+      series.values.forEach((value, index) => {
+        const normalized = value / maxValue;
+        const barHeight = height * normalized;
+        const rect = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+        rect.setAttribute("x", left + index * barWidth + 8 + innerBarWidth * seriesIndex);
+        rect.setAttribute("y", bottom - barHeight);
+        rect.setAttribute("width", innerBarWidth - 2);
+        rect.setAttribute("height", barHeight);
+        rect.setAttribute("rx", "6");
+        rect.setAttribute("fill", palette[seriesIndex % palette.length]);
+        svg.appendChild(rect);
+      });
+    });
 
+    chart.categories.forEach((category, index) => {
       appendSvgText(
         svg,
         left + index * barWidth + barWidth / 2,
         bottom + 20,
-        String(chart.categories[index]),
+        String(category),
         "chart-tick",
         { "text-anchor": "middle" },
       );
+    });
+
+    chart.series.forEach((series, index) => {
+      appendSvgText(svg, left + 8, 24 + index * 18, series.name, "chart-series-label", {
+        fill: palette[index % palette.length],
+      });
     });
 
     appendSvgText(svg, left + width / 2, 328, chart.spec.x_label, "chart-axis-label", {
@@ -324,11 +386,12 @@ function renderLineChart(chart) {
     const bottom = 288;
     const width = 600;
     const height = 220;
-    const values = chart.series[0].values;
+    const values = chart.series.flatMap((series) => series.values);
     const minValue = Math.min(...values);
     const maxValue = Math.max(...values);
     const xStep = chart.categories.length > 1 ? width / (chart.categories.length - 1) : width;
     const yRange = maxValue - minValue || 1;
+    const palette = ["#b65c3a", "#3b6c8e", "#6f8a42", "#8a4f7d"];
 
     const axis = document.createElementNS("http://www.w3.org/2000/svg", "line");
     axis.setAttribute("x1", left);
@@ -346,25 +409,37 @@ function renderLineChart(chart) {
     yAxis.setAttribute("class", "chart-axis-line");
     svg.appendChild(yAxis);
 
-    const points = values.map((value, index) => {
+    chart.categories.forEach((category, index) => {
       const x = left + index * xStep;
-      const y = bottom - ((value - minValue) / yRange) * height;
-      appendSvgText(svg, x, bottom + 20, String(chart.categories[index]), "chart-tick", {
+      appendSvgText(svg, x, bottom + 20, String(category), "chart-tick", {
         "text-anchor": "middle",
       });
-      const circle = document.createElementNS("http://www.w3.org/2000/svg", "circle");
-      circle.setAttribute("cx", x);
-      circle.setAttribute("cy", y);
-      circle.setAttribute("r", "4");
-      circle.setAttribute("class", "chart-point");
-      svg.appendChild(circle);
-      return `${x},${y}`;
     });
 
-    const polyline = document.createElementNS("http://www.w3.org/2000/svg", "polyline");
-    polyline.setAttribute("points", points.join(" "));
-    polyline.setAttribute("class", "chart-line");
-    svg.appendChild(polyline);
+    chart.series.forEach((series, seriesIndex) => {
+      const points = series.values.map((value, index) => {
+        const x = left + index * xStep;
+        const y = bottom - ((value - minValue) / yRange) * height;
+        const circle = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+        circle.setAttribute("cx", x);
+        circle.setAttribute("cy", y);
+        circle.setAttribute("r", "4");
+        circle.setAttribute("fill", palette[seriesIndex % palette.length]);
+        svg.appendChild(circle);
+        return `${x},${y}`;
+      });
+
+      const polyline = document.createElementNS("http://www.w3.org/2000/svg", "polyline");
+      polyline.setAttribute("points", points.join(" "));
+      polyline.setAttribute("fill", "none");
+      polyline.setAttribute("stroke", palette[seriesIndex % palette.length]);
+      polyline.setAttribute("stroke-width", "3");
+      svg.appendChild(polyline);
+
+      appendSvgText(svg, left + 8, 24 + seriesIndex * 18, series.name, "chart-series-label", {
+        fill: palette[seriesIndex % palette.length],
+      });
+    });
 
     appendSvgText(svg, left + width / 2, 328, chart.spec.x_label, "chart-axis-label", {
       "text-anchor": "middle",
@@ -417,26 +492,48 @@ function renderHeatmap(chart) {
   return wrapper;
 }
 
-function renderChart(chart) {
-  chartOutput.replaceChildren();
+function renderSingleChart(chart, container) {
+  container.replaceChildren();
   if (!chart) {
     chartEmpty.hidden = false;
     return;
   }
   chartEmpty.hidden = true;
-  if (chart.kind === "bar") {
-    chartOutput.appendChild(renderBarChart(chart));
+  if (chart.title) {
+    const heading = document.createElement("div");
+    heading.className = "chart-caption";
+    heading.innerHTML = `<span>${chart.title}</span><span>${chart.spec?.kind ?? chart.kind}</span>`;
+    container.appendChild(heading);
+  }
+  if (chart.kind === "bar" || chart.kind === "compare_bar") {
+    container.appendChild(renderBarChart(chart));
     return;
   }
-  if (chart.kind === "line") {
-    chartOutput.appendChild(renderLineChart(chart));
+  if (chart.kind === "line" || chart.kind === "compare_line") {
+    container.appendChild(renderLineChart(chart));
     return;
   }
   if (chart.kind === "heatmap_distribution" || chart.kind === "heatmap_scalar") {
-    chartOutput.appendChild(renderHeatmap(chart));
+    container.appendChild(renderHeatmap(chart));
     return;
   }
   chartEmpty.hidden = false;
+}
+
+function renderCharts(charts) {
+  chartOutput.replaceChildren();
+  const items = Array.isArray(charts) ? charts : charts ? [charts] : [];
+  if (items.length === 0) {
+    chartEmpty.hidden = false;
+    return;
+  }
+  chartEmpty.hidden = true;
+  items.forEach((chart) => {
+    const container = document.createElement("div");
+    container.className = "chart-stack";
+    chartOutput.appendChild(container);
+    renderSingleChart(chart, container);
+  });
 }
 
 function setOutputs(payload) {
@@ -445,7 +542,7 @@ function setOutputs(payload) {
     diagnosticOutput.textContent = payload.error.formatted;
     textOutput.textContent = "";
     jsonOutput.textContent = "";
-    renderChart(null);
+    renderCharts(null);
     resultKind.textContent = "error";
     return;
   }
@@ -455,14 +552,20 @@ function setOutputs(payload) {
   textOutput.textContent = summarizeResult(payload.result);
   jsonOutput.textContent = JSON.stringify(payload.result, null, 2);
   resultKind.textContent = payload.result.type;
-  renderChart(payload.render);
+  renderCharts(payload.renders && payload.renders.length ? payload.renders : payload.render);
 }
 
 async function evaluateSource() {
   const source = currentSource();
   updateRuntimeStatus("Evaluating…", "Running dice in a Pyodide worker.", "running");
   try {
-    const payload = await callWorker("evaluate", { source });
+    const payload = await callWorker("evaluate", {
+      source,
+      files: activeWorkspace.files,
+      settings: {
+        source_path: activeWorkspace.sourcePath,
+      },
+    });
     setOutputs(payload);
     if (payload.ok) {
       updateRuntimeStatus("Ready", "Worker runtime is warm. Use Cmd/Ctrl+Enter to re-run.", payload.result.type);
@@ -473,6 +576,29 @@ async function evaluateSource() {
     diagnosticPanel.hidden = false;
     diagnosticOutput.textContent = error.message;
     updateRuntimeStatus("Worker failed", error.message, "error");
+  }
+}
+
+async function loadSelectedSample() {
+  const selectedPath = sampleSelect.value;
+  if (!selectedPath) {
+    resetWorkspace();
+    return;
+  }
+  updateRuntimeStatus("Loading sample…", "Fetching bundled sample sources into the worker context.", "loading");
+  try {
+    const sample = await callWorker("loadSample", { path: selectedPath });
+    activeWorkspace = {
+      sourcePath: sample.source_path,
+      files: sample.files,
+      samplePath: selectedPath,
+    };
+    replaceSource(sample.source);
+    updateRuntimeStatus("Sample loaded", `Loaded ${selectedPath}.`, "ready");
+  } catch (error) {
+    updateRuntimeStatus("Sample failed", error.message, "error");
+    diagnosticPanel.hidden = false;
+    diagnosticOutput.textContent = error.message;
   }
 }
 
@@ -494,6 +620,10 @@ shareButton.addEventListener("click", () => {
   void copyShareUrl();
 });
 
+loadSampleButton.addEventListener("click", () => {
+  void loadSelectedSample();
+});
+
 saveSnippetButton.addEventListener("click", () => {
   const name = window.prompt("Snippet name");
   if (!name) {
@@ -501,6 +631,8 @@ saveSnippetButton.addEventListener("click", () => {
   }
   const snippets = loadSnippets();
   snippets[name] = currentSource();
+  resetWorkspace();
+  refreshSampleSelect();
   saveSnippets(snippets);
   refreshSnippetSelect();
   snippetSelect.value = name;
@@ -521,6 +653,8 @@ deleteSnippetButton.addEventListener("click", () => {
 snippetSelect.addEventListener("change", () => {
   const selected = snippetSelect.value;
   if (selected === EMPTY_SNIPPET) {
+    resetWorkspace();
+    refreshSampleSelect();
     return;
   }
   const snippets = loadSnippets();
@@ -528,10 +662,13 @@ snippetSelect.addEventListener("change", () => {
   if (!snippet) {
     return;
   }
+  resetWorkspace();
+  refreshSampleSelect();
   replaceSource(snippet);
 });
 
 refreshSnippetSelect();
+refreshSampleSelect();
 setOutputs({ ok: true, result: { type: "string", value: "Runtime not started yet." }, render: null });
 textOutput.textContent = "Runtime not started yet.";
 jsonOutput.textContent = "{}";
@@ -540,9 +677,21 @@ async function boot() {
   updateRuntimeStatus("Booting Pyodide…", "Loading runtime files from ./runtime and initializing the worker.", "booting");
   try {
     symbols = await callWorker("init");
+    samples = await callWorker("listSamples");
+    refreshSampleSelect();
     workerReady = true;
     builtinCount.textContent = `${symbols.builtins.length} builtins`;
     updateRuntimeStatus("Ready", "Pyodide is warm and the dice web bridge is loaded.", "ready");
+    const url = new URL(window.location.href);
+    const sampleFromUrl = url.searchParams.get("sample");
+    const sharedSource = url.searchParams.get("code");
+    if (sampleFromUrl) {
+      sampleSelect.value = sampleFromUrl;
+      await loadSelectedSample();
+      if (sharedSource) {
+        replaceSource(sharedSource);
+      }
+    }
     await evaluateSource();
   } catch (error) {
     workerReady = false;

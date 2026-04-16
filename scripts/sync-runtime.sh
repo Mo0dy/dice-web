@@ -5,6 +5,7 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SOURCE_DIR="$ROOT_DIR/dice"
 RUNTIME_DIR="$ROOT_DIR/runtime"
 BRIDGE_SOURCE="$ROOT_DIR/webbridge.py"
+VIEWER_SOURCE="$ROOT_DIR/viewer.py"
 
 RUNTIME_FILES=(
   diagnostics.py
@@ -17,15 +18,17 @@ RUNTIME_FILES=(
 )
 
 rm -rf "$RUNTIME_DIR"
-mkdir -p "$RUNTIME_DIR/stdlib"
+mkdir -p "$RUNTIME_DIR/stdlib" "$RUNTIME_DIR/samples"
 
 for relative_path in "${RUNTIME_FILES[@]}"; do
   cp "$SOURCE_DIR/$relative_path" "$RUNTIME_DIR/$relative_path"
 done
 
 cp "$BRIDGE_SOURCE" "$RUNTIME_DIR/webbridge.py"
+cp "$VIEWER_SOURCE" "$RUNTIME_DIR/viewer.py"
 
 cp -R "$SOURCE_DIR/stdlib/." "$RUNTIME_DIR/stdlib/"
+cp -R "$SOURCE_DIR/samples/dnd" "$RUNTIME_DIR/samples/"
 
 cd "$RUNTIME_DIR"
 python - <<'PY'

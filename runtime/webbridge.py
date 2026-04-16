@@ -11,15 +11,17 @@ import tempfile
 
 def _ensure_dice_imports():
     current_dir = os.path.dirname(os.path.abspath(__file__))
+    if current_dir not in sys.path:
+        sys.path.insert(0, current_dir)
     candidates = [
-        current_dir,
         os.path.join(current_dir, "dice"),
         os.path.join(os.path.dirname(current_dir), "dice"),
+        current_dir,
     ]
     for candidate in candidates:
         if os.path.isfile(os.path.join(candidate, "interpreter.py")):
             if candidate not in sys.path:
-                sys.path.insert(0, candidate)
+                sys.path.insert(1, candidate)
             return candidate
     raise ImportError("Could not locate dice runtime sources for webbridge")
 
@@ -32,11 +34,13 @@ from diceparser import DiceParser, ParserError
 from executor import ExactExecutor
 from interpreter import COMPLETION_KEYWORDS, CallableEntry, Interpreter, STDLIB_ROOT
 from lexer import ASSIGN, Lexer, LexerError, SEMI
+import viewer
 
 
 DEFAULT_SOURCE_PATH = "main.dice"
 DEFAULT_ROUNDLEVEL = 6
 IMPORT_PATH_CHARS = frozenset("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_./:-")
+RUNNABLE_SAMPLE_ROOT = "dnd"
 
 
 def _is_numeric(value):
@@ -180,6 +184,21 @@ def _write_workspace_files(root_dir, source, files=None, source_path=DEFAULT_SOU
     return normalized_source_path
 
 
+def _discover_sample_root():
+    current_dir = os.path.dirname(os.path.abspath(__file__))
+    candidates = [
+        os.path.join(current_dir, "samples"),
+        os.path.join(current_dir, "dice", "samples"),
+    ]
+    for candidate in candidates:
+        if os.path.isdir(candidate):
+            return candidate
+    return None
+
+
+SAMPLE_ROOT = _discover_sample_root()
+
+
 def _serialize_span(span):
     if span is None:
         return None
@@ -211,6 +230,16 @@ def _serialize_error(error):
         "formatted": "error: {}".format(error),
         "span": None,
     }
+
+
+def _sample_relative_path(path):
+    normalized = _normalize_workspace_path(path)
+    if SAMPLE_ROOT is None:
+        raise ValueError("No bundled samples are available")
+    absolute_path = os.path.abspath(os.path.join(SAMPLE_ROOT, normalized))
+    if os.path.commonpath([SAMPLE_ROOT, absolute_path]) != SAMPLE_ROOT:
+        raise ValueError("sample path must stay within the bundled sample directory")
+    return normalized, absolute_path
 
 
 def _render_axis_name(axis, index):
@@ -402,6 +431,55 @@ def list_symbols():
     }
 
 
+def list_samples():
+    if SAMPLE_ROOT is None:
+        return []
+    samples = []
+    runnable_root = os.path.join(SAMPLE_ROOT, RUNNABLE_SAMPLE_ROOT)
+    if not os.path.isdir(runnable_root):
+        return samples
+    for root, _dirs, filenames in os.walk(runnable_root):
+        for filename in sorted(filenames):
+            if not filename.endswith(".dice"):
+                continue
+            if os.path.basename(root) == "lib":
+                continue
+            absolute_path = os.path.join(root, filename)
+            relative_path = os.path.relpath(absolute_path, SAMPLE_ROOT).replace(os.sep, "/")
+            parent = os.path.dirname(relative_path)
+            samples.append(
+                {
+                    "path": relative_path,
+                    "name": os.path.splitext(filename)[0].replace("_", " "),
+                    "group": parent,
+                }
+            )
+    return sorted(samples, key=lambda item: (item["group"], item["path"]))
+
+
+def load_sample(path):
+    relative_path, absolute_path = _sample_relative_path(path)
+    if not os.path.isfile(absolute_path):
+        raise ValueError("Unknown sample {}".format(path))
+    sample_root = os.path.dirname(os.path.dirname(absolute_path))
+    files = {}
+    for root, _dirs, filenames in os.walk(sample_root):
+        for filename in filenames:
+            if not filename.endswith(".dice"):
+                continue
+            file_path = os.path.join(root, filename)
+            relative_file_path = os.path.relpath(file_path, sample_root).replace(os.sep, "/")
+            with open(file_path, encoding="utf-8") as handle:
+                files[relative_file_path] = handle.read()
+    sample_key = os.path.relpath(absolute_path, sample_root).replace(os.sep, "/")
+    return {
+        "path": sample_key,
+        "source_path": sample_key,
+        "source": files[sample_key],
+        "files": files,
+    }
+
+
 def _parse_program(text, *, source_name):
     return DiceParser(Lexer(text, source_name=source_name)).parse()
 
@@ -563,6 +641,7 @@ def evaluate(source, files=None, settings=None):
         )
         absolute_source_path = os.path.join(workspace, normalized_source_path)
         current_dir = os.path.dirname(absolute_source_path)
+        viewer.reset_render_log()
         try:
             ast = _parse_program(source, source_name=absolute_source_path)
             interpreter = Interpreter(
@@ -578,7 +657,11 @@ def evaluate(source, files=None, settings=None):
             roundlevel=roundlevel,
             probability_mode=probability_mode,
         )
+        renders = viewer.get_render_log()
+        if renders and serialized.get("type") == "string" and serialized.get("value") == "__dice_web_render__":
+            serialized = {"type": "string", "value": "Rendered {} chart(s).".format(len(renders))}
         return {
             "ok": True,
             "result": serialized,
+            "renders": renders,
         }

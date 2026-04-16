@@ -1,0 +1,4 @@
+# Bless and a longsword across AC.
+import "../lib/weapons.dice"
+
+~bless_longsword([10:22], 7, 4)

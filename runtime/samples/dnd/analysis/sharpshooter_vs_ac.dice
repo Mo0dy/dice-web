@@ -1,0 +1,4 @@
+# Sharpshooter expected damage across AC.
+import "../lib/weapons.dice"
+
+~sharpshooter([10:22], 8, 4)
