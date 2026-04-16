@@ -340,8 +340,24 @@ pre {
 
 .chart-controls {
   display: flex;
-  justify-content: flex-end;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.55rem;
+  flex-wrap: wrap;
+}
+
+.chart-control-group {
+  display: inline-flex;
+  align-items: center;
   gap: 0.35rem;
+  flex-wrap: wrap;
+}
+
+.chart-control-label {
+  color: var(--ink-muted);
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
 }
 
 .chart-toggle {

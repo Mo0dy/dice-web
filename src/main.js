@@ -633,6 +633,68 @@ function shouldRotateCategoryLabels(categories, width, step) {
   return longest * 7 > availableWidth;
 }
 
+function isProbabilityLabel(label) {
+  return String(label || "").toLowerCase().includes("probability");
+}
+
+function chartValueRange(values) {
+  const finiteValues = values.filter((value) => Number.isFinite(value));
+  if (finiteValues.length === 0) {
+    return { min: 0, max: 1 };
+  }
+  return {
+    min: Math.min(...finiteValues),
+    max: Math.max(...finiteValues),
+  };
+}
+
+function paddedRange(minValue, maxValue, multiplier = 0.08) {
+  if (!Number.isFinite(minValue) || !Number.isFinite(maxValue)) {
+    return { min: 0, max: 1 };
+  }
+  if (minValue === maxValue) {
+    const padding = minValue === 0 ? 1 : Math.abs(minValue) * 0.1;
+    return { min: minValue - padding, max: maxValue + padding };
+  }
+  const span = maxValue - minValue;
+  const padding = span * multiplier;
+  return {
+    min: minValue - padding,
+    max: maxValue + padding,
+  };
+}
+
+function buildChartScale(values, options = {}) {
+  const { scaleMode = "auto", includeZeroByDefault = false, probabilitySeries = false } = options;
+  const range = chartValueRange(values);
+
+  if (scaleMode === "tight") {
+    const padded = paddedRange(range.min, range.max, 0.08);
+    return buildLinearScale(padded.min, padded.max, { includeZero: false });
+  }
+
+  if (scaleMode === "zero") {
+    const paddedMax =
+      range.max === 0
+        ? 1
+        : range.max + Math.max(Math.abs(range.max) * 0.08, Math.abs(range.max - range.min) * 0.04, 0.25);
+    return buildLinearScale(Math.min(range.min, 0), paddedMax, { includeZero: true });
+  }
+
+  if (probabilitySeries) {
+    const paddedMax = range.max === 0 ? 1 : range.max * 1.08;
+    return buildLinearScale(0, paddedMax, { includeZero: true });
+  }
+
+  if (includeZeroByDefault) {
+    const paddedMax = range.max === 0 ? 1 : range.max + Math.max((range.max - Math.min(range.min, 0)) * 0.08, 0.25);
+    return buildLinearScale(Math.min(range.min, 0), paddedMax, { includeZero: true });
+  }
+
+  const padded = paddedRange(range.min, range.max, 0.06);
+  return buildLinearScale(padded.min, padded.max, { includeZero: false });
+}
+
 function drawChartAxes(svg, options) {
   const { left, top, width, height, bottom, scale, categories, xLabel, yLabel } = options;
   const right = left + width;
@@ -682,7 +744,7 @@ function drawChartAxes(svg, options) {
   return { rotateXLabels };
 }
 
-function renderBarChart(chart) {
+function renderBarChart(chart, options = {}) {
   return renderSvgChart((svg, tooltip) => {
     const wrapper = svg.parentNode;
     const prepared = prepareBarChart(chart);
@@ -690,8 +752,12 @@ function renderBarChart(chart) {
     const left = 76;
     const width = 620;
     const height = 222;
-    const maxSeriesValue = Math.max(...displayChart.series.flatMap((series) => series.values), 0);
-    const scale = buildLinearScale(0, maxSeriesValue === 0 ? 1 : maxSeriesValue * 1.08, { includeZero: true });
+    const values = displayChart.series.flatMap((series) => series.values);
+    const scale = buildChartScale(values, {
+      scaleMode: options.scaleMode,
+      includeZeroByDefault: true,
+      probabilitySeries: isProbabilityLabel(displayChart.spec.y_label),
+    });
     const top = 38;
     const bottom = top + height;
     const barWidth = width / displayChart.categories.length;
@@ -739,20 +805,18 @@ function renderBarChart(chart) {
   });
 }
 
-function renderLineChart(chart) {
+function renderLineChart(chart, options = {}) {
   return renderSvgChart((svg, tooltip) => {
     const left = 76;
     const width = 620;
     const height = 222;
     const values = chart.series.flatMap((series) => series.values);
-    const probabilitySeries = chart.spec.y_label.toLowerCase().includes("probability");
-    const minValue = probabilitySeries ? 0 : Math.min(...values);
-    const maxValue = Math.max(...values);
-    const scale = buildLinearScale(
-      minValue,
-      maxValue === minValue ? maxValue + 1 : maxValue * (probabilitySeries ? 1.08 : 1.02),
-      { includeZero: probabilitySeries },
-    );
+    const probabilitySeries = isProbabilityLabel(chart.spec.y_label);
+    const scale = buildChartScale(values, {
+      scaleMode: options.scaleMode,
+      includeZeroByDefault: false,
+      probabilitySeries,
+    });
     const top = 38;
     const bottom = top + height;
     const xStep = chart.categories.length > 1 ? width / (chart.categories.length - 1) : width;
@@ -906,10 +970,11 @@ function buildLegend(chart) {
   return legend;
 }
 
-function renderCartesianChart(chart, plotHost) {
-  const view = chartToggleView(chart.kind);
+function renderCartesianChart(chart, plotHost, options = {}) {
+  const view = options.view ?? chartToggleView(chart.kind);
   const displayChart = view ? chartWithView(chart, view) : chart;
-  plotHost.replaceChildren(view === "line" ? renderLineChart(displayChart) : renderBarChart(displayChart));
+  const scaleMode = options.scaleMode ?? "auto";
+  plotHost.replaceChildren(view === "line" ? renderLineChart(displayChart, { scaleMode }) : renderBarChart(displayChart, { scaleMode }));
 }
 
 function renderSingleChart(chart, container) {
@@ -935,16 +1000,37 @@ function renderSingleChart(chart, container) {
     plotHost.className = "chart-plot-host";
     const legend = buildLegend(chart);
     let activeView = chartToggleView(chart.kind);
+    let activeScaleMode = "auto";
+
+    const renderActiveChart = () => {
+      const activeChart = chartWithView(chart, activeView);
+      renderCartesianChart(activeChart, plotHost, {
+        view: activeView,
+        scaleMode: activeScaleMode,
+      });
+      if (modeLabel) {
+        modeLabel.textContent = `${activeChart.kind} · ${activeScaleMode}`;
+      }
+    };
 
     const syncButtons = (buttons) => {
       buttons.forEach((button) => {
-        const isActive = button.dataset.view === activeView;
+        const buttonValue = button.dataset.view ?? button.dataset.scaleMode;
+        const activeValue = button.dataset.view ? activeView : activeScaleMode;
+        const isActive = buttonValue === activeValue;
         button.classList.toggle("is-active", isActive);
         button.setAttribute("aria-pressed", String(isActive));
       });
     };
 
-    const buttons = ["bar", "line"].map((view) => {
+    const controlButtons = [];
+    const viewControls = document.createElement("div");
+    viewControls.className = "chart-control-group";
+    const viewLabel = document.createElement("span");
+    viewLabel.className = "chart-control-label";
+    viewLabel.textContent = "View";
+    viewControls.appendChild(viewLabel);
+    ["bar", "line"].forEach((view) => {
       const button = document.createElement("button");
       button.type = "button";
       button.className = "chart-toggle";
@@ -955,21 +1041,45 @@ function renderSingleChart(chart, container) {
           return;
         }
         activeView = view;
-        renderCartesianChart(chartWithView(chart, activeView), plotHost);
-        if (modeLabel) {
-          modeLabel.textContent = chartWithView(chart, activeView).kind;
-        }
-        syncButtons(buttons);
+        renderActiveChart();
+        syncButtons(controlButtons);
       });
-      controls.appendChild(button);
-      return button;
+      controlButtons.push(button);
+      viewControls.appendChild(button);
     });
+    controls.appendChild(viewControls);
 
-    syncButtons(buttons);
-    renderCartesianChart(chartWithView(chart, activeView), plotHost);
-    if (modeLabel) {
-      modeLabel.textContent = chartWithView(chart, activeView).kind;
-    }
+    const scaleControls = document.createElement("div");
+    scaleControls.className = "chart-control-group";
+    const scaleLabel = document.createElement("span");
+    scaleLabel.className = "chart-control-label";
+    scaleLabel.textContent = "Scale";
+    scaleControls.appendChild(scaleLabel);
+    [
+      ["auto", "Auto"],
+      ["zero", "Zero"],
+      ["tight", "Tight"],
+    ].forEach(([scaleMode, label]) => {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "chart-toggle";
+      button.dataset.scaleMode = scaleMode;
+      button.textContent = label;
+      button.addEventListener("click", () => {
+        if (activeScaleMode === scaleMode) {
+          return;
+        }
+        activeScaleMode = scaleMode;
+        renderActiveChart();
+        syncButtons(controlButtons);
+      });
+      controlButtons.push(button);
+      scaleControls.appendChild(button);
+    });
+    controls.appendChild(scaleControls);
+
+    syncButtons(controlButtons);
+    renderActiveChart();
     container.appendChild(controls);
     container.appendChild(plotHost);
     if (legend) {
