@@ -397,15 +397,9 @@ pre {
   overflow: visible;
 }
 
-.chart-svg.is-zoomable {
-  cursor: crosshair;
-}
-
-.chart-brush {
-  fill: rgba(182, 92, 58, 0.16);
-  stroke: rgba(141, 58, 32, 0.65);
-  stroke-width: 1.5;
-  pointer-events: none;
+.chart-notes {
+  display: grid;
+  gap: 0.35rem;
 }
 
 .chart-tooltip {

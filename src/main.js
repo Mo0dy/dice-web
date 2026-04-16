@@ -459,86 +459,136 @@ function formatHoverValue(value, label) {
   return label && label.includes("%") ? `${formatted}%` : formatted;
 }
 
+function numericCategoryValue(category) {
+  if (typeof category === "number") {
+    return Number.isFinite(category) ? category : null;
+  }
+  const numeric = Number(category);
+  return Number.isFinite(numeric) ? numeric : null;
+}
+
 function isZeroCategory(category) {
-  return category === 0 || category === "0";
+  return numericCategoryValue(category) === 0;
 }
 
 function isPositiveNumericCategory(category) {
-  return typeof category === "number" && category > 0;
+  const numeric = numericCategoryValue(category);
+  return numeric !== null && numeric > 0;
 }
 
-function prepareBarChart(chart) {
-  const zeroIndex = chart.categories.findIndex((category) => isZeroCategory(category));
-  const hasPositiveCategory = chart.categories.some((category) => isPositiveNumericCategory(category));
-
-  if (zeroIndex < 0 || !hasPositiveCategory) {
-    return { chart, zeroNote: null };
-  }
-
-  const zeroValues = chart.series.map((series) => series.values[zeroIndex] ?? 0);
-  const hasVisibleZeroMass = zeroValues.some((value) => value > 0);
-  if (!hasVisibleZeroMass) {
-    return { chart, zeroNote: null };
-  }
-
-  const categories = chart.categories.filter((_category, index) => index !== zeroIndex);
-  if (categories.length === 0) {
-    return { chart, zeroNote: null };
-  }
-
-  const series = chart.series.map((seriesEntry) => ({
-    ...seriesEntry,
-    values: seriesEntry.values.filter((_value, index) => index !== zeroIndex),
-  }));
-
-  const zeroNote =
-    chart.series.length === 1
-      ? `Zero outcome hidden: ${formatHoverValue(zeroValues[0], chart.spec.y_label)}`
-      : `Zero outcome hidden: ${chart.series
-          .map((seriesEntry, index) => `${seriesEntry.name} ${formatHoverValue(zeroValues[index], chart.spec.y_label)}`)
-          .join(", ")}`;
-
-  return {
-    chart: {
-      ...chart,
-      categories,
-      series,
-    },
-    zeroNote,
-  };
+function hasNumericCategories(chart) {
+  return Array.isArray(chart.categories) && chart.categories.length > 0 && chart.categories.every((category) => numericCategoryValue(category) !== null);
 }
 
-function normalizeIndexRange(range, totalCount) {
-  if (!range || totalCount <= 0) {
-    return { start: 0, end: Math.max(totalCount - 1, 0) };
-  }
-  return {
-    start: Math.max(0, Math.min(range.start, totalCount - 1)),
-    end: Math.max(0, Math.min(range.end, totalCount - 1)),
-  };
+function canAdjustDistributionView(chart) {
+  return canToggleChart(chart) && hasNumericCategories(chart) && isProbabilityLabel(chart.spec?.y_label);
 }
 
-function isFullIndexRange(range, totalCount) {
-  if (totalCount <= 0) {
-    return true;
+function significantTailThreshold(chart) {
+  const maxValue = Math.max(...chart.series.flatMap((series) => series.values), 0);
+  if (maxValue <= 0) {
+    return 0;
   }
-  const normalized = normalizeIndexRange(range, totalCount);
-  return normalized.start === 0 && normalized.end === totalCount - 1;
+  return Math.max(0.05, maxValue * 0.01);
 }
 
-function sliceCartesianChart(chart, range) {
-  if (!chart.categories || chart.categories.length === 0) {
-    return chart;
-  }
-  const normalized = normalizeIndexRange(range, chart.categories.length);
+function lastSignificantIndex(chart, threshold) {
+  let lastPositive = -1;
+  let lastSignificant = -1;
+  chart.series.forEach((series) => {
+    series.values.forEach((value, index) => {
+      if (value > 0) {
+        lastPositive = Math.max(lastPositive, index);
+      }
+      if (value >= threshold) {
+        lastSignificant = Math.max(lastSignificant, index);
+      }
+    });
+  });
+  return lastSignificant >= 0 ? lastSignificant : lastPositive;
+}
+
+function sliceCartesianChart(chart, endIndexInclusive) {
   return {
     ...chart,
-    categories: chart.categories.slice(normalized.start, normalized.end + 1),
+    categories: chart.categories.slice(0, endIndexInclusive + 1),
     series: chart.series.map((seriesEntry) => ({
       ...seriesEntry,
-      values: seriesEntry.values.slice(normalized.start, normalized.end + 1),
+      values: seriesEntry.values.slice(0, endIndexInclusive + 1),
     })),
   };
+}
+
+function prepareDistributionChart(chart, displayMode = "full") {
+  if (!canAdjustDistributionView(chart)) {
+    return { chart, notes: [] };
+  }
+
+  let displayChart = chart;
+  const notes = [];
+
+  if (displayMode === "omit-zero" || displayMode === "tight") {
+    const zeroIndex = displayChart.categories.findIndex((category) => isZeroCategory(category));
+    const hasPositiveCategory = displayChart.categories.some((category) => isPositiveNumericCategory(category));
+
+    if (zeroIndex >= 0 && hasPositiveCategory) {
+      const zeroValues = displayChart.series.map((series) => series.values[zeroIndex] ?? 0);
+      const hasVisibleZeroMass = zeroValues.some((value) => value > 0);
+      if (hasVisibleZeroMass) {
+        const categories = displayChart.categories.filter((_category, index) => index !== zeroIndex);
+        if (categories.length > 0) {
+          const series = displayChart.series.map((seriesEntry) => ({
+            ...seriesEntry,
+            values: seriesEntry.values.filter((_value, index) => index !== zeroIndex),
+          }));
+          notes.push(
+            displayChart.series.length === 1
+              ? `Zero outcome hidden: ${formatHoverValue(zeroValues[0], displayChart.spec.y_label)}`
+              : `Zero outcome hidden: ${displayChart.series
+                  .map((seriesEntry, index) => `${seriesEntry.name} ${formatHoverValue(zeroValues[index], displayChart.spec.y_label)}`)
+                  .join(", ")}`,
+          );
+          displayChart = {
+            ...displayChart,
+            categories,
+            series,
+          };
+        }
+      }
+    }
+  }
+
+  if (displayMode === "tight" && displayChart.categories.length > 1) {
+    const threshold = significantTailThreshold(displayChart);
+    const lastVisibleIndex = lastSignificantIndex(displayChart, threshold);
+    if (lastVisibleIndex >= 0 && lastVisibleIndex < displayChart.categories.length - 1) {
+      const lastVisibleCategory = displayChart.categories[lastVisibleIndex];
+      displayChart = sliceCartesianChart(displayChart, lastVisibleIndex);
+      notes.push(
+        `Tail hidden after ${lastVisibleCategory}; remaining values are below ${formatHoverValue(
+          threshold,
+          displayChart.spec.y_label,
+        )}`,
+      );
+    }
+  }
+
+  return { chart: displayChart, notes };
+}
+
+function defaultDistributionView(chart) {
+  if (!canAdjustDistributionView(chart)) {
+    return "full";
+  }
+  const omitZero = prepareDistributionChart(chart, "omit-zero");
+  const tight = prepareDistributionChart(chart, "tight");
+  if (tight.chart.categories.length + 2 < omitZero.chart.categories.length) {
+    return "tight";
+  }
+  if (omitZero.notes.length > 0) {
+    return "omit-zero";
+  }
+  return "full";
 }
 
 function createTooltipController(wrapper, tooltip) {
@@ -590,118 +640,6 @@ function createTooltipController(wrapper, tooltip) {
       });
     },
   };
-}
-
-function pointerToSvgPoint(event, svg) {
-  const bounds = svg.getBoundingClientRect();
-  const viewBox = svg.viewBox.baseVal;
-  const width = bounds.width || 1;
-  const height = bounds.height || 1;
-  return {
-    x: ((event.clientX - bounds.left) / width) * viewBox.width,
-    y: ((event.clientY - bounds.top) / height) * viewBox.height,
-  };
-}
-
-function attachCartesianZoom(svg, options) {
-  const { left, top, width, height, totalCount, visibleRange, anchorMode, onZoom, onReset } = options;
-  if (totalCount <= 2) {
-    return;
-  }
-  svg.classList.add("is-zoomable");
-
-  const selection = document.createElementNS("http://www.w3.org/2000/svg", "rect");
-  selection.setAttribute("class", "chart-brush");
-  selection.hidden = true;
-  svg.appendChild(selection);
-
-  let dragStartX = null;
-  let activePointerId = null;
-  const normalizedVisibleRange = normalizeIndexRange(visibleRange, totalCount);
-  const visibleCount = normalizedVisibleRange.end - normalizedVisibleRange.start + 1;
-
-  function indexForPoint(x) {
-    const clampedX = Math.max(left, Math.min(left + width, x));
-    const localX = clampedX - left;
-    if (anchorMode === "line") {
-      if (visibleCount <= 1) {
-        return normalizedVisibleRange.start;
-      }
-      const fraction = localX / width;
-      const visibleIndex = Math.round(fraction * (visibleCount - 1));
-      return normalizedVisibleRange.start + Math.max(0, Math.min(visibleIndex, visibleCount - 1));
-    }
-    const bucketWidth = width / visibleCount;
-    const visibleIndex = Math.floor(localX / bucketWidth);
-    return normalizedVisibleRange.start + Math.max(0, Math.min(visibleIndex, visibleCount - 1));
-  }
-
-  function updateSelection(startX, currentX) {
-    const clampedStart = Math.max(left, Math.min(left + width, startX));
-    const clampedCurrent = Math.max(left, Math.min(left + width, currentX));
-    selection.hidden = false;
-    selection.setAttribute("x", Math.min(clampedStart, clampedCurrent));
-    selection.setAttribute("y", top);
-    selection.setAttribute("width", Math.max(Math.abs(clampedCurrent - clampedStart), 1));
-    selection.setAttribute("height", height);
-  }
-
-  function clearSelection() {
-    selection.hidden = true;
-    dragStartX = null;
-    activePointerId = null;
-  }
-
-  svg.addEventListener("pointerdown", (event) => {
-    const point = pointerToSvgPoint(event, svg);
-    const inPlotX = point.x >= left && point.x <= left + width;
-    const inPlotY = point.y >= top && point.y <= top + height;
-    if (!inPlotX || !inPlotY) {
-      return;
-    }
-    dragStartX = point.x;
-    activePointerId = event.pointerId;
-    if (typeof svg.setPointerCapture === "function") {
-      svg.setPointerCapture(event.pointerId);
-    }
-    updateSelection(dragStartX, point.x);
-  });
-
-  svg.addEventListener("pointermove", (event) => {
-    if (dragStartX === null || event.pointerId !== activePointerId) {
-      return;
-    }
-    const point = pointerToSvgPoint(event, svg);
-    updateSelection(dragStartX, point.x);
-  });
-
-  svg.addEventListener("pointerup", (event) => {
-    if (dragStartX === null || event.pointerId !== activePointerId) {
-      return;
-    }
-    const point = pointerToSvgPoint(event, svg);
-    const startIndex = indexForPoint(dragStartX);
-    const endIndex = indexForPoint(point.x);
-    const nextRange = {
-      start: Math.min(startIndex, endIndex),
-      end: Math.max(startIndex, endIndex),
-    };
-    const didDrag = Math.abs(point.x - dragStartX) >= 14;
-    clearSelection();
-    if (didDrag && nextRange.end > nextRange.start && !isFullIndexRange(nextRange, totalCount)) {
-      onZoom(nextRange);
-    }
-  });
-
-  svg.addEventListener("pointercancel", () => {
-    clearSelection();
-  });
-
-  svg.addEventListener("dblclick", () => {
-    if (!isFullIndexRange(visibleRange, totalCount)) {
-      onReset();
-    }
-  });
 }
 
 const CHART_PALETTE = ["#b65c3a", "#3b6c8e", "#6f8a42", "#8a4f7d"];
@@ -810,21 +748,8 @@ function paddedRange(minValue, maxValue, multiplier = 0.08) {
 }
 
 function buildChartScale(values, options = {}) {
-  const { scaleMode = "auto", includeZeroByDefault = false, probabilitySeries = false } = options;
+  const { includeZeroByDefault = false, probabilitySeries = false } = options;
   const range = chartValueRange(values);
-
-  if (scaleMode === "tight") {
-    const padded = paddedRange(range.min, range.max, 0.08);
-    return buildLinearScale(padded.min, padded.max, { includeZero: false });
-  }
-
-  if (scaleMode === "zero") {
-    const paddedMax =
-      range.max === 0
-        ? 1
-        : range.max + Math.max(Math.abs(range.max) * 0.08, Math.abs(range.max - range.min) * 0.04, 0.25);
-    return buildLinearScale(Math.min(range.min, 0), paddedMax, { includeZero: true });
-  }
 
   if (probabilitySeries) {
     const paddedMax = range.max === 0 ? 1 : range.max * 1.08;
@@ -890,148 +815,117 @@ function drawChartAxes(svg, options) {
 }
 
 function renderBarChart(chart, options = {}) {
-  return renderSvgChart((svg, tooltip) => {
-    const wrapper = svg.parentNode;
-    const prepared = prepareBarChart(chart);
-    const fullChart = prepared.chart;
-    const visibleRange = normalizeIndexRange(options.zoomRange, fullChart.categories.length);
-    const displayChart = sliceCartesianChart(fullChart, visibleRange);
-    const left = 76;
-    const width = 620;
-    const height = 222;
-    const values = displayChart.series.flatMap((series) => series.values);
-    const scale = buildChartScale(values, {
-      scaleMode: options.scaleMode,
-      includeZeroByDefault: true,
-      probabilitySeries: isProbabilityLabel(displayChart.spec.y_label),
-    });
-    const top = 38;
-    const bottom = top + height;
-    const barWidth = width / displayChart.categories.length;
-    const seriesCount = displayChart.series.length;
-    const innerBarWidth = Math.max((barWidth - 18) / seriesCount, 6);
-    drawChartAxes(svg, {
-      left,
-      top,
-      width,
-      height,
-      bottom,
-      scale,
-      categories: displayChart.categories,
-      xLabel: displayChart.spec.x_label,
-      yLabel: displayChart.spec.y_label,
-    });
-
-    displayChart.series.forEach((series, seriesIndex) => {
-      series.values.forEach((value, index) => {
-        const y = valueToY(value, scale, top, height);
-        const barHeight = bottom - y;
-        const rect = document.createElementNS("http://www.w3.org/2000/svg", "rect");
-        rect.setAttribute("x", left + index * barWidth + 8 + innerBarWidth * seriesIndex);
-        rect.setAttribute("y", y);
-        rect.setAttribute("width", innerBarWidth - 2);
-        rect.setAttribute("height", barHeight);
-        rect.setAttribute("rx", "6");
-        rect.setAttribute("fill", CHART_PALETTE[seriesIndex % CHART_PALETTE.length]);
-        const category = displayChart.categories[index];
-        tooltip.attach(rect, [
-          series.name,
-          `${displayChart.spec.x_label}: ${category}`,
-          `${displayChart.spec.y_label}: ${formatHoverValue(value, displayChart.spec.y_label)}`,
-        ]);
-        svg.appendChild(rect);
+  const prepared = prepareDistributionChart(chart, options.displayMode);
+  return {
+    notes: prepared.notes,
+    node: renderSvgChart((svg, tooltip) => {
+      const displayChart = prepared.chart;
+      const left = 76;
+      const width = 620;
+      const height = 222;
+      const values = displayChart.series.flatMap((series) => series.values);
+      const scale = buildChartScale(values, {
+        includeZeroByDefault: true,
+        probabilitySeries: isProbabilityLabel(displayChart.spec.y_label),
       });
-    });
+      const top = 38;
+      const bottom = top + height;
+      const barWidth = width / displayChart.categories.length;
+      const seriesCount = displayChart.series.length;
+      const innerBarWidth = Math.max((barWidth - 18) / seriesCount, 6);
+      drawChartAxes(svg, {
+        left,
+        top,
+        width,
+        height,
+        bottom,
+        scale,
+        categories: displayChart.categories,
+        xLabel: displayChart.spec.x_label,
+        yLabel: displayChart.spec.y_label,
+      });
 
-    if (prepared.zeroNote) {
-      const note = document.createElement("div");
-      note.className = "chart-note";
-      note.textContent = prepared.zeroNote;
-      wrapper.appendChild(note);
-    }
-
-    attachCartesianZoom(svg, {
-      left,
-      top,
-      width,
-      height,
-      totalCount: fullChart.categories.length,
-      visibleRange,
-      anchorMode: "bar",
-      onZoom: options.onZoom ?? (() => {}),
-      onReset: options.onReset ?? (() => {}),
-    });
-  });
+      displayChart.series.forEach((series, seriesIndex) => {
+        series.values.forEach((value, index) => {
+          const y = valueToY(value, scale, top, height);
+          const barHeight = bottom - y;
+          const rect = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+          rect.setAttribute("x", left + index * barWidth + 8 + innerBarWidth * seriesIndex);
+          rect.setAttribute("y", y);
+          rect.setAttribute("width", innerBarWidth - 2);
+          rect.setAttribute("height", barHeight);
+          rect.setAttribute("rx", "6");
+          rect.setAttribute("fill", CHART_PALETTE[seriesIndex % CHART_PALETTE.length]);
+          const category = displayChart.categories[index];
+          tooltip.attach(rect, [
+            series.name,
+            `${displayChart.spec.x_label}: ${category}`,
+            `${displayChart.spec.y_label}: ${formatHoverValue(value, displayChart.spec.y_label)}`,
+          ]);
+          svg.appendChild(rect);
+        });
+      });
+    }),
+  };
 }
 
 function renderLineChart(chart, options = {}) {
-  return renderSvgChart((svg, tooltip) => {
-    const fullChart = chart;
-    const visibleRange = normalizeIndexRange(options.zoomRange, fullChart.categories.length);
-    const displayChart = sliceCartesianChart(fullChart, visibleRange);
-    const left = 76;
-    const width = 620;
-    const height = 222;
-    const values = displayChart.series.flatMap((series) => series.values);
-    const probabilitySeries = isProbabilityLabel(displayChart.spec.y_label);
-    const scale = buildChartScale(values, {
-      scaleMode: options.scaleMode,
-      includeZeroByDefault: false,
-      probabilitySeries,
-    });
-    const top = 38;
-    const bottom = top + height;
-    const xStep = displayChart.categories.length > 1 ? width / (displayChart.categories.length - 1) : width;
-    drawChartAxes(svg, {
-      left,
-      top,
-      width,
-      height,
-      bottom,
-      scale,
-      categories: displayChart.categories,
-      xLabel: displayChart.spec.x_label,
-      yLabel: displayChart.spec.y_label,
-    });
-
-    displayChart.series.forEach((series, seriesIndex) => {
-      const points = series.values.map((value, index) => {
-        const x = left + index * xStep;
-        const y = valueToY(value, scale, top, height);
-        const circle = document.createElementNS("http://www.w3.org/2000/svg", "circle");
-        circle.setAttribute("cx", x);
-        circle.setAttribute("cy", y);
-        circle.setAttribute("r", "4");
-        circle.setAttribute("fill", CHART_PALETTE[seriesIndex % CHART_PALETTE.length]);
-        tooltip.attach(circle, [
-          series.name,
-          `${displayChart.spec.x_label}: ${displayChart.categories[index]}`,
-          `${displayChart.spec.y_label}: ${formatHoverValue(value, displayChart.spec.y_label)}`,
-        ]);
-        svg.appendChild(circle);
-        return `${x},${y}`;
+  const prepared = prepareDistributionChart(chart, options.displayMode);
+  return {
+    notes: prepared.notes,
+    node: renderSvgChart((svg, tooltip) => {
+      const displayChart = prepared.chart;
+      const left = 76;
+      const width = 620;
+      const height = 222;
+      const values = displayChart.series.flatMap((series) => series.values);
+      const probabilitySeries = isProbabilityLabel(displayChart.spec.y_label);
+      const scale = buildChartScale(values, {
+        includeZeroByDefault: false,
+        probabilitySeries,
+      });
+      const top = 38;
+      const bottom = top + height;
+      const xStep = displayChart.categories.length > 1 ? width / (displayChart.categories.length - 1) : width;
+      drawChartAxes(svg, {
+        left,
+        top,
+        width,
+        height,
+        bottom,
+        scale,
+        categories: displayChart.categories,
+        xLabel: displayChart.spec.x_label,
+        yLabel: displayChart.spec.y_label,
       });
 
-      const polyline = document.createElementNS("http://www.w3.org/2000/svg", "polyline");
-      polyline.setAttribute("points", points.join(" "));
-      polyline.setAttribute("fill", "none");
-      polyline.setAttribute("stroke", CHART_PALETTE[seriesIndex % CHART_PALETTE.length]);
-      polyline.setAttribute("stroke-width", "3");
-      svg.appendChild(polyline);
-    });
+      displayChart.series.forEach((series, seriesIndex) => {
+        const points = series.values.map((value, index) => {
+          const x = left + index * xStep;
+          const y = valueToY(value, scale, top, height);
+          const circle = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+          circle.setAttribute("cx", x);
+          circle.setAttribute("cy", y);
+          circle.setAttribute("r", "4");
+          circle.setAttribute("fill", CHART_PALETTE[seriesIndex % CHART_PALETTE.length]);
+          tooltip.attach(circle, [
+            series.name,
+            `${displayChart.spec.x_label}: ${displayChart.categories[index]}`,
+            `${displayChart.spec.y_label}: ${formatHoverValue(value, displayChart.spec.y_label)}`,
+          ]);
+          svg.appendChild(circle);
+          return `${x},${y}`;
+        });
 
-    attachCartesianZoom(svg, {
-      left,
-      top,
-      width,
-      height,
-      totalCount: fullChart.categories.length,
-      visibleRange,
-      anchorMode: "line",
-      onZoom: options.onZoom ?? (() => {}),
-      onReset: options.onReset ?? (() => {}),
-    });
-  });
+        const polyline = document.createElementNS("http://www.w3.org/2000/svg", "polyline");
+        polyline.setAttribute("points", points.join(" "));
+        polyline.setAttribute("fill", "none");
+        polyline.setAttribute("stroke", CHART_PALETTE[seriesIndex % CHART_PALETTE.length]);
+        polyline.setAttribute("stroke-width", "3");
+        svg.appendChild(polyline);
+      });
+    }),
+  };
 }
 
 function renderHeatmap(chart) {
@@ -1147,22 +1041,16 @@ function buildLegend(chart) {
 function renderCartesianChart(chart, plotHost, options = {}) {
   const view = options.view ?? chartToggleView(chart.kind);
   const displayChart = view ? chartWithView(chart, view) : chart;
-  const scaleMode = options.scaleMode ?? "auto";
-  const chartNode =
+  const rendered =
     view === "line"
       ? renderLineChart(displayChart, {
-          scaleMode,
-          zoomRange: options.zoomRange,
-          onZoom: options.onZoom,
-          onReset: options.onReset,
+          displayMode: options.displayMode,
         })
       : renderBarChart(displayChart, {
-          scaleMode,
-          zoomRange: options.zoomRange,
-          onZoom: options.onZoom,
-          onReset: options.onReset,
+          displayMode: options.displayMode,
         });
-  plotHost.replaceChildren(chartNode);
+  plotHost.replaceChildren(rendered.node);
+  return rendered;
 }
 
 function renderSingleChart(chart, container) {
@@ -1186,44 +1074,39 @@ function renderSingleChart(chart, container) {
     controls.className = "chart-controls";
     const plotHost = document.createElement("div");
     plotHost.className = "chart-plot-host";
+    const notesHost = document.createElement("div");
+    notesHost.className = "chart-notes";
     const legend = buildLegend(chart);
     let activeView = chartToggleView(chart.kind);
-    let activeScaleMode = "auto";
-    let activeZoomRange = null;
-    const zoomable = Array.isArray(chart.categories) && chart.categories.length > 2;
+    const supportsDistributionView = canAdjustDistributionView(chart);
+    let activeDisplayMode = defaultDistributionView(chart);
 
     const renderActiveChart = () => {
       const activeChart = chartWithView(chart, activeView);
-      renderCartesianChart(activeChart, plotHost, {
+      const rendered = renderCartesianChart(activeChart, plotHost, {
         view: activeView,
-        scaleMode: activeScaleMode,
-        zoomRange: activeZoomRange,
-        onZoom: (nextRange) => {
-          activeZoomRange = nextRange;
-          renderActiveChart();
-          syncButtons(controlButtons);
-        },
-        onReset: () => {
-          activeZoomRange = null;
-          renderActiveChart();
-          syncButtons(controlButtons);
-        },
+        displayMode: activeDisplayMode,
       });
+      notesHost.replaceChildren(
+        ...rendered.notes.map((noteText) => {
+          const note = document.createElement("div");
+          note.className = "chart-note";
+          note.textContent = noteText;
+          return note;
+        }),
+      );
       if (modeLabel) {
-        modeLabel.textContent = `${activeChart.kind} · ${activeScaleMode}`;
+        modeLabel.textContent = supportsDistributionView ? `${activeChart.kind} · ${activeDisplayMode}` : activeChart.kind;
       }
     };
 
     const syncButtons = (buttons) => {
       buttons.forEach((button) => {
-        const buttonValue = button.dataset.view ?? button.dataset.scaleMode;
-        const activeValue = button.dataset.view ? activeView : button.dataset.scaleMode ? activeScaleMode : null;
+        const buttonValue = button.dataset.view ?? button.dataset.displayMode;
+        const activeValue = button.dataset.view ? activeView : button.dataset.displayMode ? activeDisplayMode : null;
         const isActive = buttonValue === activeValue;
         button.classList.toggle("is-active", isActive);
         button.setAttribute("aria-pressed", String(isActive));
-        if (button.dataset.action === "reset-zoom") {
-          button.disabled = activeZoomRange === null;
-        }
       });
     };
 
@@ -1232,7 +1115,7 @@ function renderSingleChart(chart, container) {
     viewControls.className = "chart-control-group";
     const viewLabel = document.createElement("span");
     viewLabel.className = "chart-control-label";
-    viewLabel.textContent = "View";
+    viewLabel.textContent = "Plot";
     viewControls.appendChild(viewLabel);
     ["bar", "line"].forEach((view) => {
       const button = document.createElement("button");
@@ -1253,58 +1136,35 @@ function renderSingleChart(chart, container) {
     });
     controls.appendChild(viewControls);
 
-    const scaleControls = document.createElement("div");
-    scaleControls.className = "chart-control-group";
-    const scaleLabel = document.createElement("span");
-    scaleLabel.className = "chart-control-label";
-    scaleLabel.textContent = "Scale";
-    scaleControls.appendChild(scaleLabel);
-    [
-      ["auto", "Auto"],
-      ["zero", "Zero"],
-      ["tight", "Tight"],
-    ].forEach(([scaleMode, label]) => {
-      const button = document.createElement("button");
-      button.type = "button";
-      button.className = "chart-toggle";
-      button.dataset.scaleMode = scaleMode;
-      button.textContent = label;
-      button.addEventListener("click", () => {
-        if (activeScaleMode === scaleMode) {
-          return;
-        }
-        activeScaleMode = scaleMode;
-        renderActiveChart();
-        syncButtons(controlButtons);
+    if (supportsDistributionView) {
+      const displayControls = document.createElement("div");
+      displayControls.className = "chart-control-group";
+      const displayLabel = document.createElement("span");
+      displayLabel.className = "chart-control-label";
+      displayLabel.textContent = "Show";
+      displayControls.appendChild(displayLabel);
+      [
+        ["full", "Full"],
+        ["omit-zero", "Omit-Zero"],
+        ["tight", "Tight"],
+      ].forEach(([displayMode, label]) => {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = "chart-toggle";
+        button.dataset.displayMode = displayMode;
+        button.textContent = label;
+        button.addEventListener("click", () => {
+          if (activeDisplayMode === displayMode) {
+            return;
+          }
+          activeDisplayMode = displayMode;
+          renderActiveChart();
+          syncButtons(controlButtons);
+        });
+        controlButtons.push(button);
+        displayControls.appendChild(button);
       });
-      controlButtons.push(button);
-      scaleControls.appendChild(button);
-    });
-    controls.appendChild(scaleControls);
-
-    if (zoomable) {
-      const actionControls = document.createElement("div");
-      actionControls.className = "chart-control-group";
-      const zoomHint = document.createElement("span");
-      zoomHint.className = "chart-control-label";
-      zoomHint.textContent = "Drag to zoom";
-      actionControls.appendChild(zoomHint);
-      const resetZoomButton = document.createElement("button");
-      resetZoomButton.type = "button";
-      resetZoomButton.className = "chart-toggle";
-      resetZoomButton.dataset.action = "reset-zoom";
-      resetZoomButton.textContent = "Reset Zoom";
-      resetZoomButton.addEventListener("click", () => {
-        if (activeZoomRange === null) {
-          return;
-        }
-        activeZoomRange = null;
-        renderActiveChart();
-        syncButtons(controlButtons);
-      });
-      controlButtons.push(resetZoomButton);
-      actionControls.appendChild(resetZoomButton);
-      controls.appendChild(actionControls);
+      controls.appendChild(displayControls);
     }
 
     syncButtons(controlButtons);
@@ -1314,22 +1174,37 @@ function renderSingleChart(chart, container) {
     if (legend) {
       container.appendChild(legend);
     }
+    container.appendChild(notesHost);
     return true;
   }
   if (chart.kind === "bar" || chart.kind === "compare_bar") {
-    container.appendChild(renderBarChart(chart));
+    const rendered = renderBarChart(chart, { displayMode: defaultDistributionView(chart) });
+    container.appendChild(rendered.node);
     const legend = buildLegend(chart);
     if (legend) {
       container.appendChild(legend);
     }
+    rendered.notes.forEach((noteText) => {
+      const note = document.createElement("div");
+      note.className = "chart-note";
+      note.textContent = noteText;
+      container.appendChild(note);
+    });
     return true;
   }
   if (chart.kind === "line" || chart.kind === "compare_line") {
-    container.appendChild(renderLineChart(chart));
+    const rendered = renderLineChart(chart, { displayMode: defaultDistributionView(chart) });
+    container.appendChild(rendered.node);
     const legend = buildLegend(chart);
     if (legend) {
       container.appendChild(legend);
     }
+    rendered.notes.forEach((noteText) => {
+      const note = document.createElement("div");
+      note.className = "chart-note";
+      note.textContent = noteText;
+      container.appendChild(note);
+    });
     return true;
   }
   if (chart.kind === "heatmap_distribution" || chart.kind === "heatmap_scalar") {
