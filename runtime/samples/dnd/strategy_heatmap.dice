@@ -1,0 +1,17 @@
+# Compare a few build choices across armor classes.
+#
+# The result is a two-axis scalar sweep:
+# - rows are strategy names
+# - columns are armor classes
+# - each cell is the expected damage for that strategy at that AC
+
+import "std:dnd/weapons.dice"
+import "std:dnd/spells.dice"
+
+plan_damage(plan, ac) = match plan as name
+| name == "fighter_two_attacks" = fighter_attack_action(2, ac, 7, 4) $ mean
+| name == "paladin_smite" = paladin_smite(ac, 8, 4, 3) $ mean
+| name == "sharpshooter" = sharpshooter(ac, 8, 4) $ mean
+| otherwise = eldritch_blast_action(3, ac, 7, 4) $ mean
+
+plan_damage([PLAN:"fighter_two_attacks", "paladin_smite", "sharpshooter", "eldritch_blast"], [AC:10:22])

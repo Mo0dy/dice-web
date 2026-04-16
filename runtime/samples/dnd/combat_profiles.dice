@@ -1,0 +1,15 @@
+# Compare several D&D combat options as full damage distributions.
+#
+# This sample is intentionally direct: define a few concrete scenarios, then
+# render the resulting distributions side by side.
+
+import "std:dnd/weapons.dice"
+import "std:dnd/spells.dice"
+
+fighter_longsword = longsword_attack(16, 7, 4)
+blessed_longsword = bless_longsword(16, 7, 4)
+paladin_smite_strike = paladin_smite(17, 8, 4, 3)
+warlock_round = eldritch_blast_action(3, 15, 7, 4)
+fireball_blast = fireball(15, 2)
+
+render(fighter_longsword, "Longsword", blessed_longsword, "Blessed longsword", paladin_smite_strike, "Paladin smite", warlock_round, "Eldritch blast", fireball_blast, "Fireball", "Damage", "Combat damage profiles")

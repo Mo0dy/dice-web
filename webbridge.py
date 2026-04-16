@@ -378,6 +378,18 @@ def _discover_sample_root():
 SAMPLE_ROOT = _discover_sample_root()
 
 
+def _stdlib_path(import_name):
+    if not import_name.startswith("std:"):
+        raise ValueError("stdlib paths must start with std:")
+    relative_path = import_name.removeprefix("std:")
+    if not relative_path.endswith(".dice"):
+        relative_path = relative_path + ".dice"
+    absolute_path = os.path.abspath(os.path.join(STDLIB_ROOT, relative_path))
+    if os.path.commonpath([STDLIB_ROOT, absolute_path]) != STDLIB_ROOT:
+        raise ValueError("stdlib path must stay within the bundled standard library")
+    return relative_path, absolute_path
+
+
 def _serialize_span(span):
     if span is None:
         return None
@@ -611,32 +623,59 @@ def list_symbols():
 
 
 def list_samples():
-    if SAMPLE_ROOT is None:
-        return []
-    samples = []
-    runnable_root = os.path.join(SAMPLE_ROOT, RUNNABLE_SAMPLE_ROOT)
-    if not os.path.isdir(runnable_root):
-        return samples
-    for root, _dirs, filenames in os.walk(runnable_root):
-        for filename in sorted(filenames):
-            if not filename.endswith(".dice"):
-                continue
-            if os.path.basename(root) == "lib":
-                continue
-            absolute_path = os.path.join(root, filename)
-            relative_path = os.path.relpath(absolute_path, SAMPLE_ROOT).replace(os.sep, "/")
-            parent = os.path.dirname(relative_path)
-            samples.append(
-                {
-                    "path": relative_path,
-                    "name": os.path.splitext(filename)[0].replace("_", " "),
-                    "group": parent,
-                }
-            )
-    return sorted(samples, key=lambda item: (item["group"], item["path"]))
+    entries = []
+
+    if SAMPLE_ROOT is not None:
+        runnable_root = os.path.join(SAMPLE_ROOT, RUNNABLE_SAMPLE_ROOT)
+        if os.path.isdir(runnable_root):
+            for root, _dirs, filenames in os.walk(runnable_root):
+                for filename in sorted(filenames):
+                    if not filename.endswith(".dice"):
+                        continue
+                    if os.path.basename(root) == "lib":
+                        continue
+                    absolute_path = os.path.join(root, filename)
+                    relative_path = os.path.relpath(absolute_path, SAMPLE_ROOT).replace(os.sep, "/")
+                    parent = os.path.dirname(relative_path)
+                    entries.append(
+                        {
+                            "path": relative_path,
+                            "name": os.path.splitext(filename)[0].replace("_", " "),
+                            "group": f"Samples/{parent}",
+                            "kind": "sample",
+                        }
+                    )
+
+    for import_name in _stdlib_imports():
+        entries.append(
+            {
+                "path": import_name,
+                "name": import_name.removeprefix("std:"),
+                "group": "Standard Library",
+                "kind": "stdlib",
+            }
+        )
+
+    return sorted(entries, key=lambda item: (item["group"], item["path"]))
 
 
 def load_sample(path):
+    if path.startswith("std:"):
+        relative_path, absolute_path = _stdlib_path(path)
+        if not os.path.isfile(absolute_path):
+            raise ValueError("Unknown sample {}".format(path))
+        files = {}
+        for import_name in _stdlib_imports():
+            stdlib_relative, stdlib_absolute = _stdlib_path(import_name)
+            with open(stdlib_absolute, encoding="utf-8") as handle:
+                files[stdlib_relative] = handle.read()
+        return {
+            "path": path,
+            "source_path": relative_path,
+            "source": files[relative_path],
+            "files": files,
+        }
+
     relative_path, absolute_path = _sample_relative_path(path)
     if not os.path.isfile(absolute_path):
         raise ValueError("Unknown sample {}".format(path))

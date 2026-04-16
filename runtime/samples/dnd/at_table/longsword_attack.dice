@@ -1,4 +1,0 @@
-# Fighter with a longsword attacking AC 16.
-import "../lib/weapons.dice"
-
-longsword_attack(16, 7, 4)

@@ -1,4 +1,0 @@
-# Sacred Flame against one target with a modest save bonus.
-import "../lib/spells.dice"
-
-sacred_flame(15, 2)

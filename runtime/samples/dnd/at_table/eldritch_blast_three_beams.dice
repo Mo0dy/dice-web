@@ -1,4 +1,0 @@
-# Higher-level eldritch blast with three independent beams.
-import "../lib/spells.dice"
-
-eldritch_blast_action(3, 15, 7, 4)

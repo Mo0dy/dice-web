@@ -1,4 +1,0 @@
-# Great Weapon Master swing into a tougher target.
-import "../lib/weapons.dice"
-
-great_weapon_master(17, 8, 4)

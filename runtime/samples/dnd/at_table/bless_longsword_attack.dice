@@ -1,4 +1,0 @@
-# Bless improves the attack roll but not the damage roll.
-import "../lib/weapons.dice"
-
-bless_longsword(16, 7, 4)

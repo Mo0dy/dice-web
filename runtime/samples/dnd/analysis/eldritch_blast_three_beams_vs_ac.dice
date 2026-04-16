@@ -1,4 +1,0 @@
-# Three-beam eldritch blast across AC.
-import "../lib/spells.dice"
-
-~eldritch_blast_action(3, [10:22], 7, 4)

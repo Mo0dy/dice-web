@@ -1,4 +1,0 @@
-# Inflict Wounds as a melee spell attack.
-import "../lib/spells.dice"
-
-inflict_wounds(15, 7)

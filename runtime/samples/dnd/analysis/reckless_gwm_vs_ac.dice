@@ -1,4 +1,0 @@
-# Reckless attack plus Great Weapon Master.
-import "../lib/weapons.dice"
-
-~reckless_great_weapon_master([10:22], 8, 4)

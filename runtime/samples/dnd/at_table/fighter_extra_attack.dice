@@ -1,4 +1,0 @@
-# Fighter attack action with two independent swings.
-import "../lib/weapons.dice"
-
-fighter_attack_action(2, 16, 7, 4)

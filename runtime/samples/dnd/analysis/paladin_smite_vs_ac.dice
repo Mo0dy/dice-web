@@ -1,4 +1,0 @@
-# Crit-aware smite damage across AC.
-import "../lib/weapons.dice"
-
-~paladin_smite([10:22], 8, 4, 3)

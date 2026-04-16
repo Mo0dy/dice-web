@@ -1,4 +1,0 @@
-# Expected fireball damage across save bonuses.
-import "../lib/spells.dice"
-
-~fireball(15, [0:9])

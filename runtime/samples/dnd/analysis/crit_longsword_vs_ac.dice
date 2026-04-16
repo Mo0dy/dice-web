@@ -1,4 +1,0 @@
-# Crit-aware longsword model across AC.
-import "../lib/weapons.dice"
-
-~crit_longsword([10:22], 7, 4)

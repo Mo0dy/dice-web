@@ -1,4 +1,0 @@
-# Expected total fireball damage across one named party axis.
-import "../lib/spells.dice"
-
-sumover("party", ~fireball(15, [party:0, 2, 5, 7]))

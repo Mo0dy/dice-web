@@ -1,4 +1,0 @@
-# Great Weapon Master expected damage sweep.
-import "../lib/weapons.dice"
-
-~great_weapon_master([10:22], 8, 4)

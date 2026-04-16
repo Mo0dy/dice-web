@@ -6,7 +6,6 @@
 # - distribution of the sum of six ability modifiers
 # - probability that a character has at least one exact target score
 # - probability that one score is larger than x
-# - mean / std summary values
 #
 # Modifier uses standard 5e semantics: floor((score - 10) / 2).
 # In dice, integer division already rounds down.
@@ -30,18 +29,8 @@ at_least_one_exact_target = ((repeat_sum(6, score == [TARGET:3:18])) >= 1) $ mea
 # 5. Probability that a single score is larger than x.
 one_score_greater_than_x = (score > [X:3:18]) $ mean
 
-# 6. Quick mean/std summary plot.
-summary(metric) = match metric as m
-| m == "single_mean" = score $ mean
-| m == "single_std" = score $ std
-| m == "character_total_mean" = repeat_sum(6, score) $ mean
-| otherwise = repeat_sum(6, score) $ std
-
-summary_points = summary([METRIC:"single_mean", "single_std", "character_total_mean", "character_total_std"])
-
 render(one_score_exact, "Ability score", "Single ability score distribution")
 render(any_score_at_least_target, "Target score", "Chance any of 6 scores reaches target")
 render(total_modifier_sum, "Total modifier sum", "Total modifier sum across 6 scores")
 render(at_least_one_exact_target, "Target score", "Chance any of 6 scores equals target")
 render(one_score_greater_than_x, "Threshold x", "Chance a single score is greater than x")
-render(summary_points, "Metric", "Ability score summary")

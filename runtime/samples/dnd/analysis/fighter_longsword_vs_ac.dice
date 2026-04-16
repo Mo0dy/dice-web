@@ -1,4 +1,0 @@
-# Expected longsword damage across armor classes.
-import "../lib/weapons.dice"
-
-~longsword_attack([10:22], 7, 4)

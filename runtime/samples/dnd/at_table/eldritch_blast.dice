@@ -1,4 +1,0 @@
-# One eldritch blast beam hitting AC 15.
-import "../lib/spells.dice"
-
-eldritch_blast(15, 7, 4)

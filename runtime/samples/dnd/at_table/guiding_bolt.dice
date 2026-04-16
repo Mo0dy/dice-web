@@ -1,4 +1,0 @@
-# Guiding Bolt as a simple spell attack.
-import "../lib/spells.dice"
-
-guiding_bolt(15, 7)

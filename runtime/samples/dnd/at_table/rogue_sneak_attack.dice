@@ -1,4 +1,0 @@
-# Rogue hit with a rapier and 3d6 sneak attack.
-import "../lib/weapons.dice"
-
-rapier_sneak_attack(16, 7, 4, 3)

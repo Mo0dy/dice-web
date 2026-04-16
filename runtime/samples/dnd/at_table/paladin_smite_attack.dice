@@ -1,4 +1,0 @@
-# A paladin hit that spends a 2nd-level smite on connection.
-import "../lib/weapons.dice"
-
-paladin_smite(17, 8, 4, 3)

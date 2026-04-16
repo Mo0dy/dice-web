@@ -1,4 +1,0 @@
-# Shared-roll crit logic using match.
-import "../lib/weapons.dice"
-
-crit_longsword(16, 7, 4)

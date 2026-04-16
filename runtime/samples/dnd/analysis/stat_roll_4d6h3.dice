@@ -1,4 +1,0 @@
-# Classic 4d6 drop lowest stat roll.
-stat_roll() = 4 d 6 h 3
-
-stat_roll()

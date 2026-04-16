@@ -1,4 +1,0 @@
-# Fireball against one target with a modest save bonus.
-import "../lib/spells.dice"
-
-fireball(15, 2)

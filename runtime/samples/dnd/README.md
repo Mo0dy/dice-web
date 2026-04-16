@@ -1,23 +1,11 @@
-# D&D Sample Library
+# D&D Samples
 
-Executable sample programs for stressing the current dice language with D&D-like use cases.
+These are user-facing example programs built on `stdlib/dnd`.
 
-- `at_table/`: concrete actions you might evaluate during play
-- `analysis/`: sweep-based setup comparisons and expected-value views
-- `lib/`: reusable helper libraries imported by the sample programs
-- `stdlib/` equivalents are available to end users through imports such as `import "std:dnd/weapons.dice"`
+- `combat_profiles.dice`: compare a small set of common combat options as full damage distributions
+- `strategy_heatmap.dice`: sweep armor class and compare several martial and caster plans
+- `ability_scores_4d6h3.dice`: summarize classic 4d6-drop-lowest ability score generation
 
-The mechanics are intentionally approximate. Their main purpose is to exercise the language surface and reveal modeling gaps.
-
-The samples now intentionally exercise:
-
-- relative `import "..."` for reusable combat helpers inside the sample tree
-- packaged stdlib imports such as `import "std:dnd/weapons.dice"` for reusable shared helpers
-- `# ...` comments inside `.dice` files
-- reusable shared-roll crit helpers built on `match ... as ...`
-- `repeat_sum(n, expr)` for repeated independent attacks or beams
-- direct Bernoulli counting patterns such as `repeat_sum(6, score >= target)` without `-> 1 | 0`
-- advantage via higher-level helpers such as `reckless_great_weapon_master(...)`
-- keep-high syntax through `4 d 6 h 3` stat rolls
-- all current `stdlib/dnd/weapons.dice` and `stdlib/dnd/spells.dice` helper entry points
-- sweep-based build analysis across AC, save bonuses, or dart counts
+The thin one-scenario regression fixtures that used to live here now belong under `tests/`.
+The goal of this directory is readability: each file should be substantial enough to show how
+someone might actually use the packaged D&D helpers.
