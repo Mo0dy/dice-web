@@ -126,6 +126,7 @@ pre {
   display: grid;
   grid-template-columns: minmax(0, 1.15fr) minmax(380px, 0.85fr);
   gap: 1.25rem;
+  align-items: start;
 }
 
 .panel {
@@ -251,7 +252,7 @@ pre {
 
 .panel-results {
   display: grid;
-  grid-template-rows: auto auto auto minmax(0, 1fr);
+  grid-template-rows: auto auto minmax(0, 1fr) auto;
   gap: 0.95rem;
 }
 
@@ -306,6 +307,11 @@ pre {
   border-radius: 20px;
   background: rgba(255, 255, 255, 0.55);
   border: 1px dashed rgba(31, 29, 26, 0.14);
+}
+
+#chart-output {
+  display: grid;
+  gap: 1rem;
 }
 
 .chart-empty {
@@ -448,6 +454,30 @@ pre {
   border: 1px solid var(--border);
   overflow: hidden;
   font-family: var(--code-font);
+}
+
+@media (min-width: 1101px) {
+  .panel-results {
+    position: sticky;
+    top: 1rem;
+    height: calc(100vh - 2rem);
+    overflow: hidden;
+  }
+
+  .chart-panel {
+    min-height: 0;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    scrollbar-gutter: stable;
+  }
+
+  .result-grid {
+    min-height: 0;
+  }
+
+  .subpanel {
+    min-height: 0;
+  }
 }
 
 @media (max-width: 1100px) {
