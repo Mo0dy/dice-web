@@ -1,10 +1,85 @@
-# Spell-style examples built on the shared combat helpers.
+# Exact 2014 5e spell helpers.
 import "std:dnd/core.dice"
 
-eldritch_blast(ac, bonus, cha) = damage_on_hit(ac, bonus, 1 d 10 + cha)
-eldritch_blast_action(beams, ac, bonus, cha) = repeat_sum(beams, eldritch_blast(ac, bonus, cha))
-guiding_bolt(ac, bonus) = damage_on_hit(ac, bonus, 4 d 6)
-inflict_wounds(ac, bonus) = damage_on_hit(ac, bonus, 3 d 10)
-fireball(dc, save_bonus) = save_half(dc, save_bonus, 8 d 6)
-sacred_flame(dc, save_bonus) = save_fail(dc, save_bonus) -> 2 d 8 | 0
-magic_missile(darts) = darts d 4 + darts
+eldritch_blast(ac, attack_bonus, roll=d20, hit_bonus=0):
+    attack(ac, attack_bonus, d10, roll=roll, hit_bonus=hit_bonus)
+
+eldritch_blast_action(beams, ac, attack_bonus, roll=d20, hit_bonus=0):
+    eldritch_blast(ac, attack_bonus, roll=roll, hit_bonus=hit_bonus) ^ beams
+
+eldritch_blast_by_level(ac, attack_bonus, level=1, roll=d20, hit_bonus=0):
+    eldritch_blast_action(eldritch_blast_beams(level), ac, attack_bonus, roll=roll, hit_bonus=hit_bonus)
+
+agonizing_eldritch_blast(ac, attack_bonus, cha_mod, roll=d20, hit_bonus=0):
+    attack(ac, attack_bonus, d10, cha_mod, roll=roll, hit_bonus=hit_bonus)
+
+agonizing_eldritch_blast_action(beams, ac, attack_bonus, cha_mod, roll=d20, hit_bonus=0):
+    agonizing_eldritch_blast(ac, attack_bonus, cha_mod, roll=roll, hit_bonus=hit_bonus) ^ beams
+
+agonizing_eldritch_blast_by_level(ac, attack_bonus, cha_mod, level=1, roll=d20, hit_bonus=0):
+    agonizing_eldritch_blast_action(eldritch_blast_beams(level), ac, attack_bonus, cha_mod, roll=roll, hit_bonus=hit_bonus)
+
+hex_eldritch_blast(ac, attack_bonus, cha_mod, roll=d20, hit_bonus=0):
+    attack(ac, attack_bonus, d10 + d6, cha_mod, roll=roll, hit_bonus=hit_bonus)
+
+hex_eldritch_blast_action(beams, ac, attack_bonus, cha_mod, roll=d20, hit_bonus=0):
+    hex_eldritch_blast(ac, attack_bonus, cha_mod, roll=roll, hit_bonus=hit_bonus) ^ beams
+
+fire_bolt(ac, attack_bonus, level=1, roll=d20, hit_bonus=0):
+    attack(ac, attack_bonus, cantrip_dice(level, 10), roll=roll, hit_bonus=hit_bonus)
+
+ray_of_frost(ac, attack_bonus, level=1, roll=d20, hit_bonus=0):
+    attack(ac, attack_bonus, cantrip_dice(level, 8), roll=roll, hit_bonus=hit_bonus)
+
+guiding_bolt(ac, attack_bonus, slot_level=1, roll=d20, hit_bonus=0):
+    attack(ac, attack_bonus, d6 ^ (slot_level + 3), roll=roll, hit_bonus=hit_bonus)
+
+inflict_wounds(ac, attack_bonus, slot_level=1, roll=d20, hit_bonus=0):
+    attack(ac, attack_bonus, d10 ^ (slot_level + 2), roll=roll, hit_bonus=hit_bonus)
+
+chromatic_orb(ac, attack_bonus, slot_level=1, roll=d20, hit_bonus=0):
+    attack(ac, attack_bonus, d8 ^ (slot_level + 2), roll=roll, hit_bonus=hit_bonus)
+
+scorching_ray(ac, attack_bonus, slot_level=2, roll=d20, hit_bonus=0):
+    attack(ac, attack_bonus, 2 d 6, roll=roll, hit_bonus=hit_bonus) ^ (slot_level + 1)
+
+ice_knife(ac, attack_bonus, save_bonus, dc, slot_level=1, roll=d20, hit_bonus=0, save_roll=d20, save_extra=0):
+    splash_damage = d6 ^ (slot_level + 1)
+    attack(ac, attack_bonus, d10, roll=roll, hit_bonus=hit_bonus) + save_half(dc, save_bonus, splash_damage, roll=save_roll, save_extra=save_extra)
+
+magic_missile(slot_level=1): (d4 + 1) ^ (slot_level + 2)
+magic_missile_darts(darts): (d4 + 1) ^ darts
+
+burning_hands(dc, save_bonus, slot_level=1, roll=d20, save_extra=0):
+    save_half(dc, save_bonus, d6 ^ (slot_level + 2), roll=roll, save_extra=save_extra)
+
+shatter(dc, save_bonus, slot_level=2, roll=d20, save_extra=0):
+    save_half(dc, save_bonus, d8 ^ (slot_level + 1), roll=roll, save_extra=save_extra)
+
+fireball(dc, save_bonus, slot_level=3, roll=d20, save_extra=0):
+    save_half(dc, save_bonus, d6 ^ (slot_level + 5), roll=roll, save_extra=save_extra)
+
+lightning_bolt(dc, save_bonus, slot_level=3, roll=d20, save_extra=0):
+    save_half(dc, save_bonus, d6 ^ (slot_level + 5), roll=roll, save_extra=save_extra)
+
+spirit_guardians(dc, save_bonus, slot_level=3, roll=d20, save_extra=0):
+    save_half(dc, save_bonus, d8 ^ slot_level, roll=roll, save_extra=save_extra)
+
+moonbeam(dc, save_bonus, slot_level=2, roll=d20, save_extra=0):
+    save_half(dc, save_bonus, d10 ^ slot_level, roll=roll, save_extra=save_extra)
+
+cone_of_cold(dc, save_bonus, slot_level=5, roll=d20, save_extra=0):
+    save_half(dc, save_bonus, d8 ^ (slot_level + 3), roll=roll, save_extra=save_extra)
+
+disintegrate(dc, save_bonus, slot_level=6, roll=d20, save_extra=0):
+    damage = d6 ^ (slot_level + slot_level + slot_level - 8) + 40
+    save_none(dc, save_bonus, damage, roll=roll, save_extra=save_extra)
+
+sacred_flame(dc, save_bonus, level=1, roll=d20, save_extra=0):
+    save_none(dc, save_bonus, cantrip_dice(level, 8), roll=roll, save_extra=save_extra)
+
+toll_the_dead(dc, save_bonus, level=1, roll=d20, save_extra=0):
+    save_none(dc, save_bonus, cantrip_dice(level, 8), roll=roll, save_extra=save_extra)
+
+toll_the_dead_wounded(dc, save_bonus, level=1, roll=d20, save_extra=0):
+    save_none(dc, save_bonus, cantrip_dice(level, 12), roll=roll, save_extra=save_extra)

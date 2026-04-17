@@ -1,12 +1,103 @@
-# Weapon and martial examples built on the shared combat helpers.
+# Exact weapon, feat, and martial helpers built on the shared combat rules.
 import "std:dnd/core.dice"
 
-longsword_attack(ac, bonus, mod) = damage_on_hit(ac, bonus, 1 d 8 + mod)
-great_weapon_master(ac, bonus, mod) = damage_on_hit(ac, bonus - 5, 2 d 6 + mod + 10)
-reckless_great_weapon_master(ac, bonus, mod) = damage_on_hit_adv(ac, bonus - 5, 2 d 6 + mod + 10)
-rapier_sneak_attack(ac, bonus, dex, sneak_dice) = damage_on_hit(ac, bonus, 1 d 8 + dex + sneak_dice d 6)
-bless_longsword(ac, bonus, mod) = d20 + d4 + bonus >= ac -> 1 d 8 + mod | 0
-crit_longsword(ac, bonus, mod) = crit_hit(ac, bonus, 1 d 8 + mod, 2 d 8 + mod)
-sharpshooter(ac, bonus, mod) = damage_on_hit(ac, bonus - 5, 1 d 8 + mod + 10)
-paladin_smite(ac, bonus, mod, smite_dice) = crit_hit(ac, bonus, 1 d 8 + mod + smite_dice d 8, 2 d 8 + mod + (smite_dice * 2) d 8)
-fighter_attack_action(attacks, ac, bonus, mod) = repeat_sum(attacks, longsword_attack(ac, bonus, mod))
+longsword_attack(ac, attack_bonus, damage_mod, roll=d20, hit_bonus=0):
+    attack(ac, attack_bonus, 1 d 8, damage_mod, roll=roll, hit_bonus=hit_bonus)
+
+longsword_attack_versatile(ac, attack_bonus, damage_mod, roll=d20, hit_bonus=0):
+    attack(ac, attack_bonus, 1 d 10, damage_mod, roll=roll, hit_bonus=hit_bonus)
+
+greatsword_attack(ac, attack_bonus, damage_mod, roll=d20, hit_bonus=0):
+    attack(ac, attack_bonus, 2 d 6, damage_mod, roll=roll, hit_bonus=hit_bonus)
+
+greatsword_attack_gwf(ac, attack_bonus, damage_mod, roll=d20, hit_bonus=0):
+    attack(ac, attack_bonus, great_weapon_fighting_dice(2, 6), damage_mod, roll=roll, hit_bonus=hit_bonus)
+
+greataxe_attack(ac, attack_bonus, damage_mod, roll=d20, hit_bonus=0):
+    attack(ac, attack_bonus, 1 d 12, damage_mod, roll=roll, hit_bonus=hit_bonus)
+
+greataxe_attack_gwf(ac, attack_bonus, damage_mod, roll=d20, hit_bonus=0):
+    attack(ac, attack_bonus, great_weapon_fighting_dice(1, 12), damage_mod, roll=roll, hit_bonus=hit_bonus)
+
+maul_attack(ac, attack_bonus, damage_mod, roll=d20, hit_bonus=0):
+    attack(ac, attack_bonus, 2 d 6, damage_mod, roll=roll, hit_bonus=hit_bonus)
+
+maul_attack_gwf(ac, attack_bonus, damage_mod, roll=d20, hit_bonus=0):
+    attack(ac, attack_bonus, great_weapon_fighting_dice(2, 6), damage_mod, roll=roll, hit_bonus=hit_bonus)
+
+glaive_attack(ac, attack_bonus, damage_mod, roll=d20, hit_bonus=0):
+    attack(ac, attack_bonus, 1 d 10, damage_mod, roll=roll, hit_bonus=hit_bonus)
+
+halberd_attack(ac, attack_bonus, damage_mod, roll=d20, hit_bonus=0):
+    attack(ac, attack_bonus, 1 d 10, damage_mod, roll=roll, hit_bonus=hit_bonus)
+
+rapier_attack(ac, attack_bonus, dex_mod, roll=d20, hit_bonus=0):
+    attack(ac, attack_bonus, 1 d 8, dex_mod, roll=roll, hit_bonus=hit_bonus)
+
+rapier_sneak_attack(ac, attack_bonus, dex_mod, sneak_dice, roll=d20, hit_bonus=0):
+    sneak_rolls = d6 ^ sneak_dice
+    attack(ac, attack_bonus, 1 d 8 + sneak_rolls, dex_mod, roll=roll, hit_bonus=hit_bonus)
+
+dagger_attack(ac, attack_bonus, damage_mod, roll=d20, hit_bonus=0):
+    attack(ac, attack_bonus, 1 d 4, damage_mod, roll=roll, hit_bonus=hit_bonus)
+
+scimitar_attack(ac, attack_bonus, damage_mod, roll=d20, hit_bonus=0):
+    attack(ac, attack_bonus, 1 d 6, damage_mod, roll=roll, hit_bonus=hit_bonus)
+
+quarterstaff_attack(ac, attack_bonus, damage_mod, roll=d20, hit_bonus=0):
+    attack(ac, attack_bonus, 1 d 6, damage_mod, roll=roll, hit_bonus=hit_bonus)
+
+quarterstaff_attack_versatile(ac, attack_bonus, damage_mod, roll=d20, hit_bonus=0):
+    attack(ac, attack_bonus, 1 d 8, damage_mod, roll=roll, hit_bonus=hit_bonus)
+
+shortbow_attack(ac, attack_bonus, damage_mod, roll=d20, hit_bonus=0):
+    attack(ac, attack_bonus, 1 d 6, damage_mod, roll=roll, hit_bonus=hit_bonus)
+
+shortbow_sneak_attack(ac, attack_bonus, dex_mod, sneak_dice, roll=d20, hit_bonus=0):
+    sneak_rolls = d6 ^ sneak_dice
+    attack(ac, attack_bonus, 1 d 6 + sneak_rolls, dex_mod, roll=roll, hit_bonus=hit_bonus)
+
+longbow_attack(ac, attack_bonus, damage_mod, roll=d20, hit_bonus=0):
+    attack(ac, attack_bonus, 1 d 8, damage_mod, roll=roll, hit_bonus=hit_bonus)
+
+heavy_crossbow_attack(ac, attack_bonus, damage_mod, roll=d20, hit_bonus=0):
+    attack(ac, attack_bonus, 1 d 10, damage_mod, roll=roll, hit_bonus=hit_bonus)
+
+longbow_sharpshooter(ac, attack_bonus, damage_mod, roll=d20, hit_bonus=0):
+    attack(ac, attack_bonus - 5, 1 d 8, damage_mod + 10, roll=roll, hit_bonus=hit_bonus)
+
+sharpshooter(ac, attack_bonus, damage_mod, roll=d20, hit_bonus=0):
+    longbow_sharpshooter(ac, attack_bonus, damage_mod, roll=roll, hit_bonus=hit_bonus)
+
+great_weapon_master(ac, attack_bonus, damage_mod, roll=d20, hit_bonus=0):
+    attack(ac, attack_bonus - 5, 2 d 6, damage_mod + 10, roll=roll, hit_bonus=hit_bonus)
+
+hunters_mark_longbow(ac, attack_bonus, damage_mod, roll=d20, hit_bonus=0):
+    attack(ac, attack_bonus, 1 d 8 + 1 d 6, damage_mod, roll=roll, hit_bonus=hit_bonus)
+
+hunters_mark_greatsword(ac, attack_bonus, damage_mod, roll=d20, hit_bonus=0):
+    attack(ac, attack_bonus, 2 d 6 + 1 d 6, damage_mod, roll=roll, hit_bonus=hit_bonus)
+
+divine_smite_dice(slot_level): split slot_level | >= 5 -> 5 | >= 1 -> @ + 1 | otherwise -> 0
+
+divine_smite_dice_vs_fiend(slot_level): split divine_smite_dice(slot_level) + 1 | >= 6 -> 6 | otherwise -> @
+
+divine_smite_damage(slot_level): d8 ^ divine_smite_dice(slot_level)
+divine_smite_damage_vs_fiend(slot_level): d8 ^ divine_smite_dice_vs_fiend(slot_level)
+
+paladin_smite(ac, attack_bonus, damage_mod, slot_level=1, roll=d20, hit_bonus=0):
+    smite_rolls = divine_smite_damage(slot_level)
+    attack(ac, attack_bonus, 1 d 8 + smite_rolls, damage_mod, roll=roll, hit_bonus=hit_bonus)
+
+paladin_smite_vs_fiend(ac, attack_bonus, damage_mod, slot_level=1, roll=d20, hit_bonus=0):
+    smite_rolls = divine_smite_damage_vs_fiend(slot_level)
+    attack(ac, attack_bonus, 1 d 8 + smite_rolls, damage_mod, roll=roll, hit_bonus=hit_bonus)
+
+fighter_attack_action(attacks, ac, attack_bonus, damage_mod, roll=d20, hit_bonus=0):
+    longsword_attack(ac, attack_bonus, damage_mod, roll=roll, hit_bonus=hit_bonus) ^ attacks
+
+greatsword_attack_action(attacks, ac, attack_bonus, damage_mod, roll=d20, hit_bonus=0):
+    greatsword_attack(ac, attack_bonus, damage_mod, roll=roll, hit_bonus=hit_bonus) ^ attacks
+
+longbow_attack_action(attacks, ac, attack_bonus, damage_mod, roll=d20, hit_bonus=0):
+    longbow_attack(ac, attack_bonus, damage_mod, roll=roll, hit_bonus=hit_bonus) ^ attacks

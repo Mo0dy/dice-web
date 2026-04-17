@@ -86,6 +86,16 @@ class RuntimeError(DiagnosticError):
         super().__init__(message, title="error", span=span, hint=hint)
 
 
+class DiagnosticWarning(object):
+    """Non-fatal warning carrying optional location and hint metadata."""
+
+    def __init__(self, message, *, span=None, hint=None):
+        self.message = message
+        self.title = "warning"
+        self.span = span
+        self.hint = hint
+
+
 def _caret_line(span):
     line_text = span.line_text
     caret_start = max(span.start_column - 1, 0)

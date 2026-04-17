@@ -1,0 +1,8 @@
+# Compare how several common spell attacks and save spells scale by slot.
+
+import "std:dnd/spells.dice"
+
+slot_damage(plan, slot_level=3):
+    split plan as name | name == "chromatic_orb" -> chromatic_orb(15, 7, slot_level=slot_level) $ mean | name == "guiding_bolt" -> guiding_bolt(15, 7, slot_level=slot_level) $ mean | name == "scorching_ray" -> scorching_ray(15, 7, slot_level=slot_level) $ mean | name == "magic_missile" -> magic_missile(slot_level=slot_level) $ mean | otherwise -> fireball(15, 2, slot_level=slot_level) $ mean
+
+render(slot_damage([PLAN:"chromatic_orb", "guiding_bolt", "scorching_ray", "magic_missile", "fireball"], slot_level=[SLOT:3, 4, 5]), "Spell slot", "Expected damage by spell slot")

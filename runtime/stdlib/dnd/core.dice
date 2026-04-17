@@ -1,10 +1,67 @@
-# Shared combat helpers for approximate D&D examples.
+# Exact 2014 5e combat helpers.
+#
+# Attack-roll helpers model the actual rules:
+# - natural 1 always misses
+# - natural 20 always hits and crits
+# - critical hits double only the damage dice
+#
+# Save helpers intentionally do not special-case natural 1 or 20 because
+# ordinary saving throws in 5e do not auto-fail or auto-succeed.
 
-hit(ac, bonus) = d20 + bonus >= ac
-hit_adv(ac, bonus) = d+20 + bonus >= ac
-damage_on_hit(ac, bonus, dmg) = hit(ac, bonus) -> dmg | 0
-damage_on_hit_adv(ac, bonus, dmg) = hit_adv(ac, bonus) -> dmg | 0
-crit_hit(ac, bonus, hit_damage, crit_damage) = match d20 as roll | roll == 20 = crit_damage | roll + bonus >= ac = hit_damage | otherwise = 0
+ability_mod(score): (score - 10) / 2
 
-save_fail(dc, save_bonus) = d20 + save_bonus < dc
-save_half(dc, save_bonus, dmg) = save_fail(dc, save_bonus) -> dmg |//
+proficiency_bonus(level): split level | >= 17 -> 6 | >= 13 -> 5 | >= 9 -> 4 | >= 5 -> 3 | otherwise -> 2
+
+cantrip_dice(level, die_size): split level | >= 17 -> 4 d die_size | >= 11 -> 3 d die_size | >= 5 -> 2 d die_size | otherwise -> d die_size
+
+eldritch_blast_beams(level): split level | >= 17 -> 4 | >= 11 -> 3 | >= 5 -> 2 | otherwise -> 1
+
+reroll_1_or_2(die_size): split d die_size | <= 2 -> d die_size | otherwise -> @
+
+great_weapon_fighting_dice(dice_count, die_size): reroll_1_or_2(die_size) ^ dice_count
+
+hit_with_roll(roll, ac, attack_bonus, hit_bonus=0):
+    total_bonus = attack_bonus + hit_bonus
+    split roll as attack_roll | attack_roll == 1 -> 0 | attack_roll == 20 -> 1 | attack_roll + total_bonus >= ac -> 1 ||
+
+hit(ac, attack_bonus, roll=d20, hit_bonus=0):
+    hit_with_roll(roll, ac, attack_bonus, hit_bonus=hit_bonus)
+
+damage_on_hit(ac, attack_bonus, damage, roll=d20, hit_bonus=0):
+    hit(ac, attack_bonus, roll=roll, hit_bonus=hit_bonus) -> damage | 0
+
+attack_damage_with_roll(roll, ac, total_bonus, hit_damage, crit_damage): split roll as attack_roll | attack_roll == 1 -> 0 | attack_roll == 20 -> crit_damage | attack_roll + total_bonus >= ac -> hit_damage ||
+
+attack_with_damage(ac, attack_bonus, hit_damage, crit_damage, roll=d20, hit_bonus=0):
+    total_bonus = attack_bonus + hit_bonus
+    attack_damage_with_roll(roll, ac, total_bonus, hit_damage, crit_damage)
+
+attack_damage(ac, attack_bonus, hit_damage, crit_damage, roll=d20, hit_bonus=0):
+    attack_with_damage(ac, attack_bonus, hit_damage, crit_damage, roll=roll, hit_bonus=hit_bonus)
+
+attack(ac, attack_bonus, damage_rolls, damage_mod=0, roll=d20, hit_bonus=0, crit_extra_rolls=0):
+    hit_damage = damage_rolls + damage_mod
+    crit_damage = damage_rolls ^ 2 + crit_extra_rolls + damage_mod
+    attack_with_damage(ac, attack_bonus, hit_damage, crit_damage, roll=roll, hit_bonus=hit_bonus)
+
+save_success_with_roll(roll, dc, save_bonus, save_extra=0): roll + save_bonus + save_extra >= dc
+save_fail_with_roll(roll, dc, save_bonus, save_extra=0): roll + save_bonus + save_extra < dc
+
+save_success(dc, save_bonus, roll=d20, save_extra=0):
+    save_success_with_roll(roll, dc, save_bonus, save_extra=save_extra)
+
+save_fail(dc, save_bonus, roll=d20, save_extra=0):
+    save_fail_with_roll(roll, dc, save_bonus, save_extra=save_extra)
+
+save_half_with_roll(roll, dc, save_bonus, damage, save_extra=0): save_success_with_roll(roll, dc, save_bonus, save_extra=save_extra) -> damage // 2 | damage
+save_none_with_roll(roll, dc, save_bonus, damage, save_extra=0): save_fail_with_roll(roll, dc, save_bonus, save_extra=save_extra) -> damage | 0
+save_evasion_with_roll(roll, dc, save_bonus, damage, save_extra=0): save_success_with_roll(roll, dc, save_bonus, save_extra=save_extra) -> 0 | damage // 2
+
+save_half(dc, save_bonus, damage, roll=d20, save_extra=0):
+    save_half_with_roll(roll, dc, save_bonus, damage, save_extra=save_extra)
+
+save_none(dc, save_bonus, damage, roll=d20, save_extra=0):
+    save_none_with_roll(roll, dc, save_bonus, damage, save_extra=save_extra)
+
+save_evasion(dc, save_bonus, damage, roll=d20, save_extra=0):
+    save_evasion_with_roll(roll, dc, save_bonus, damage, save_extra=save_extra)

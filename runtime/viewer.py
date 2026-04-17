@@ -15,6 +15,7 @@ class RenderSpec:
     x_label: str
     y_label: str
     series_labels: tuple = ()
+    probability_values: bool = False
 
 
 @dataclass(frozen=True)
@@ -110,41 +111,56 @@ def _validate_outcome_domains(results):
         raise Exception("Viewer exception: render comparison requires consistent outcome domains")
 
 
-def build_render_spec(result):
+def build_render_spec(result, assume_probability=False):
     result = _coerce_to_distributions(result)
     if result.is_unswept():
-        return RenderSpec("bar", "Outcome", "Probability")
+        return RenderSpec("bar", "Outcome", "Probability", probability_values=True)
     if len(result.axes) == 1:
         axis_name = _fallback_axis_name(result.axes[0], 0)
         if _all_scalar(result):
-            return RenderSpec("line", axis_name, "Value")
+            return RenderSpec(
+                "line",
+                axis_name,
+                "Probability" if assume_probability else "Value",
+                probability_values=assume_probability,
+            )
         if _all_bernoulli(result):
-            return RenderSpec("line", axis_name, "Probability")
-        return RenderSpec("heatmap_distribution", axis_name, "Outcome")
+            return RenderSpec("line", axis_name, "Probability", probability_values=True)
+        return RenderSpec("heatmap_distribution", axis_name, "Outcome", probability_values=True)
     if len(result.axes) == 2 and (_all_scalar(result) or _all_bernoulli(result)):
         return RenderSpec(
             "heatmap_scalar",
             _fallback_axis_name(result.axes[1], 1),
             _fallback_axis_name(result.axes[0], 0),
+            probability_values=assume_probability or _all_bernoulli(result),
         )
     raise Exception("Viewer exception: render does not support this result shape yet")
 
 
-def build_comparison_spec(entries):
+def build_comparison_spec(entries, assume_probability=False):
     labels, raw_results = zip(*entries)
     results = [_coerce_to_distributions(result) for result in raw_results]
 
     if all(result.is_unswept() for result in results):
         _validate_outcome_domains(results)
-        return RenderSpec("compare_bar", "Outcome", "Probability", tuple(labels)), results
+        return RenderSpec("compare_bar", "Outcome", "Probability", tuple(labels), probability_values=True), results
 
     if all(len(result.axes) == 1 and _all_scalar(result) for result in results):
         _validate_same_axis_values(results)
-        return RenderSpec("compare_line", _common_axis_name(results), "Value", tuple(labels)), results
+        return (
+            RenderSpec(
+                "compare_line",
+                _common_axis_name(results),
+                "Probability" if assume_probability else "Value",
+                tuple(labels),
+                probability_values=assume_probability,
+            ),
+            results,
+        )
 
     if all(len(result.axes) == 1 and _all_bernoulli(result) for result in results):
         _validate_same_axis_values(results)
-        return RenderSpec("compare_line", _common_axis_name(results), "Probability", tuple(labels)), results
+        return RenderSpec("compare_line", _common_axis_name(results), "Probability", tuple(labels), probability_values=True), results
 
     raise Exception("Viewer exception: render comparison only supports unswept distributions or one-sweep scalar results")
 
@@ -168,11 +184,11 @@ def _record(payload):
     return payload
 
 
-def render_result(result, label=None, x_label=None, title=None, render_config=None):
+def render_result(result, label=None, x_label=None, title=None, render_config=None, assume_probability=False):
     result = _coerce_to_distributions(result)
-    spec = build_render_spec(result)
+    spec = build_render_spec(result, assume_probability=assume_probability)
     scale = _probability_scale(render_config)
-    probability_line = spec.kind == "line" and _all_bernoulli(result)
+    probability_line = spec.kind == "line" and spec.probability_values
 
     payload = {
         "kind": spec.kind,
@@ -203,7 +219,13 @@ def render_result(result, label=None, x_label=None, title=None, render_config=No
             {
                 "name": label or spec.y_label,
                 "values": [
-                    (_scalar_value(lookup[(value,)]) if _all_scalar(result) else _distribution_mean(lookup[(value, )]) * scale)
+                    (
+                        _scalar_value(lookup[(value,)]) * scale
+                        if _all_scalar(result) and spec.probability_values
+                        else _scalar_value(lookup[(value,)])
+                        if _all_scalar(result)
+                        else _distribution_mean(lookup[(value,)]) * scale
+                    )
                     for value in axis.values
                 ],
             }
@@ -237,12 +259,18 @@ def render_result(result, label=None, x_label=None, title=None, render_config=No
             row = []
             for x_value in x_axis.values:
                 distrib = lookup[(y_value, x_value)]
-                row.append(_scalar_value(distrib) if _all_scalar(result) else _distribution_mean(distrib) * scale)
+                row.append(
+                    _scalar_value(distrib) * scale
+                    if _all_scalar(result) and spec.probability_values
+                    else _scalar_value(distrib)
+                    if _all_scalar(result)
+                    else _distribution_mean(distrib) * scale
+                )
             matrix.append(row)
         payload["x_values"] = list(x_axis.values)
         payload["y_values"] = list(y_axis.values)
         payload["matrix"] = matrix
-        payload["color_label"] = "Value" if _all_scalar(result) else _probability_label(render_config)
+        payload["color_label"] = _probability_label(render_config) if spec.probability_values else "Value"
     else:
         raise Exception("Viewer exception: unsupported render kind {}".format(spec.kind))
 
@@ -250,10 +278,10 @@ def render_result(result, label=None, x_label=None, title=None, render_config=No
     return RenderOutcome(spec, "__dice_web_render__")
 
 
-def render_comparison(entries, x_label=None, title=None, render_config=None):
-    spec, results = build_comparison_spec(entries)
+def render_comparison(entries, x_label=None, title=None, render_config=None, assume_probability=False):
+    spec, results = build_comparison_spec(entries, assume_probability=assume_probability)
     scale = _probability_scale(render_config)
-    probability_line = spec.kind == "compare_line" and all(_all_bernoulli(result) for result in results)
+    probability_line = spec.kind == "compare_line" and spec.probability_values
     payload = {
         "kind": spec.kind,
         "spec": {
@@ -292,7 +320,13 @@ def render_comparison(entries, x_label=None, title=None, render_config=None):
                 {
                     "name": label,
                     "values": [
-                        (_scalar_value(result.cells[(value,)]) if _all_scalar(result) else _distribution_mean(result.cells[(value,)]) * scale)
+                        (
+                            _scalar_value(result.cells[(value,)]) * scale
+                            if _all_scalar(result) and spec.probability_values
+                            else _scalar_value(result.cells[(value,)])
+                            if _all_scalar(result)
+                            else _distribution_mean(result.cells[(value,)]) * scale
+                        )
                         for value in x_values
                     ],
                 }

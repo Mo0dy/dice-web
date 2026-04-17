@@ -14,14 +14,18 @@ from syntaxtree import (
     Op,
     FunctionDef,
     Call,
-    Match,
-    MatchClause,
+    Split,
+    SplitClause,
     Import,
     Named,
     RangeLiteral,
     MeasureEntry,
     MeasureLiteral,
     SweepLiteral,
+    Param,
+    CallArg,
+    LocalAssign,
+    BlockBody,
 )
 from lexer import (
     Token,
@@ -40,6 +44,7 @@ from lexer import (
     PLUS,
     MINUS,
     MUL,
+    CARET,
     DIV,
     FLOORDIV,
     ELSE,
@@ -57,8 +62,8 @@ from lexer import (
     ADV,
     LPAREN,
     RPAREN,
-    ELSEDIV,
-    ELSEFLOORDIV,
+    INDENT,
+    DEDENT,
     HIGH,
     LOW,
     AVG,
@@ -69,9 +74,11 @@ from lexer import (
     PRINT,
     STRING,
     MATCH,
+    SPLIT,
     AS,
     OTHERWISE,
     IMPORT,
+    SPLITZERO,
 )
 
 TOKEN_LABELS = {
@@ -89,11 +96,10 @@ TOKEN_LABELS = {
     PLUS: "'+'",
     MINUS: "'-'",
     MUL: "'*'",
+    CARET: "'^'",
     DIV: "'/'",
     FLOORDIV: "'//'",
     ELSE: "'|'",
-    ELSEDIV: "'|/'",
-    ELSEFLOORDIV: "'|//'",
     LBRACK: "'['",
     RBRACK: "']'",
     LBRACE: "'{'",
@@ -111,13 +117,17 @@ TOKEN_LABELS = {
     PROP: "'!'",
     ASSIGN: "'='",
     SEMI: "statement separator",
+    INDENT: "indent",
+    DEDENT: "dedent",
     ID: "identifier",
     PRINT: "'print'",
     STRING: "string",
     MATCH: "'match'",
+    SPLIT: "'split'",
     AS: "'as'",
     OTHERWISE: "'otherwise'",
     IMPORT: "'import'",
+    SPLITZERO: "'||'",
     EOF: "end of input",
 }
 
@@ -208,18 +218,18 @@ class DiceParser(Parser):
 
     Grammar:
         expr      :  resolve (PIPE pipeline_target)*
-        resolve   :  comp (RES comp ((ELSE comp) | ELSEDIV | ELSEFLOORDIV)?)?
+        resolve   :  comp (RES comp (ELSE branch_else)?)?
         comp      :  side ((GREATER_OR_EQUAL | LESS_OR_EQUAL | GREATER | LESS | EQUAL | IN) side)?
         side      :  term ((PLUS | MINUS) term)*
         term      :  roll ((MUL | DIV | FLOORDIV) roll)*
         roll      :  factor (ROLL factor ((HIGH | LOW) factor)?)?
-        factor    :  INTEGER | FLOAT | STRING | ID | LPAREN expr RPAREN | sweep | measure | match | ROLL factor | DIS factor | ADV factor | AVG expr | PROP expr | MINUS factor
+        factor    :  INTEGER | FLOAT | STRING | ID | LPAREN expr RPAREN | sweep | measure | split | ROLL factor | DIS factor | ADV factor | AVG expr | PROP expr | MINUS factor
         sweep     :  LBRACK (ID COLON)? sweep_values RBRACK
         sweep_values : range_expr | expr (COMMA expr)*
         measure   :  LBRACE measure_entry (COMMA measure_entry)* RBRACE
         measure_entry : range_expr_or_expr (AT expr)?
-        match     :  MATCH expr AS ID (SEMI)* match_clause ((SEMI)* match_clause)*
-        match_clause : ELSE (OTHERWISE | expr) ASSIGN expr
+        split     :  SPLIT expr (AS ID)? (SEMI)* split_clause ((SEMI)* split_clause)* SPLITZERO?
+        split_clause : ELSE (OTHERWISE RES expr | split_guard RES expr)
         pipeline_target : ID | ID LPAREN expr (COMMA expr)* RPAREN
     """
 
@@ -242,10 +252,6 @@ class DiceParser(Parser):
             self.eat(ID)
             self.eat(COLON)
         value1 = self.maybe_range(self.expr())
-        if self.current_token.type == COLON:
-            legacy_token = self.current_token
-            self.eat(COLON)
-            value1 = RangeLiteral(value1, self.expr(), True, legacy_token)
         if isinstance(value1, RangeLiteral):
             self.eat(RBRACK)
             return SweepLiteral(value1, token, name=sweep_name)
@@ -277,48 +283,141 @@ class DiceParser(Parser):
         self.eat(RBRACE)
         return MeasureLiteral(entries, token)
 
-    def match_expr(self):
+    def _anonymous_name(self, token):
+        return Val(Token(ID, "@", span=token.span))
+
+    def _relative_branch_else(self, reference):
+        if self.current_token.type in [GREATER_OR_EQUAL, LESS_OR_EQUAL, GREATER, LESS, EQUAL, IN, PLUS, MUL, DIV, FLOORDIV, CARET]:
+            return self._continue_comp(self._anonymous_name(reference))
+        return self.comp()
+
+    def _continue_term(self, node):
+        node = self._continue_repeated(node)
+        while self.current_token.type in [MUL, DIV, FLOORDIV]:
+            token = self.current_token
+            self.eat(token.type)
+            node = BinOp(node, token, self.repeated())
+        return node
+
+    def _continue_side(self, node):
+        node = self._continue_term(node)
+        while self.current_token.type in [PLUS, MINUS]:
+            token = self.current_token
+            self.eat(token.type)
+            node = BinOp(node, token, self.term())
+        return node
+
+    def _continue_comp(self, node):
+        node = self._continue_side(node)
+        if self.current_token.type in [GREATER_OR_EQUAL, LESS_OR_EQUAL, GREATER, LESS, EQUAL, IN]:
+            token = self.current_token
+            self.eat(token.type)
+            node = BinOp(node, token, self.side())
+        return node
+
+    def _continue_roll(self, node):
+        if self.current_token.type == ROLL:
+            token = self.current_token
+            self.eat(ROLL)
+            node2 = self.factor()
+            if self.current_token.type in [HIGH, LOW]:
+                token2 = self.current_token
+                self.eat(token2.type)
+                return TenOp(node, token, node2, token2, self.factor())
+            node = BinOp(node, token, node2)
+        return node
+
+    def _continue_repeated(self, node):
+        node = self._continue_roll(node)
+        if self.current_token.type == CARET:
+            token = self.current_token
+            self.eat(CARET)
+            node = BinOp(node, token, self.factor())
+        return node
+
+    def _split_guard(self, name, *, allow_anonymous_sugar):
+        if not allow_anonymous_sugar:
+            if self.current_token.type in [AT, GREATER_OR_EQUAL, LESS_OR_EQUAL, GREATER, LESS, EQUAL, IN, PLUS, MINUS, MUL, DIV, FLOORDIV]:
+                self.exception(
+                    "explicit split bindings cannot use '@' or relative guards",
+                    token=self.current_token,
+                    hint="Use the bound name in each guard, for example: split d20 as roll | roll == 20 -> 10",
+                )
+            return self.comp()
+        if self.current_token.type == AT:
+            return self.comp()
+        if self.current_token.type in [GREATER_OR_EQUAL, LESS_OR_EQUAL, GREATER, LESS, EQUAL, IN, PLUS, MINUS, MUL, DIV, FLOORDIV]:
+            return self._continue_comp(self._anonymous_name(name.token))
+        return self.comp()
+
+    def split_expr(self):
         token = self.current_token
-        self.eat(MATCH)
+        self.eat(SPLIT)
         value = self.expr()
-        self.eat(AS)
-        if self.current_token.type != ID:
-            self.exception(
-                "expected an identifier after 'as'",
-                token=self.current_token,
-                hint="Write a binding name like: match d20 as roll | roll == 20 = 10",
-            )
-        name = Val(self.current_token)
-        self.eat(ID)
+        explicit_binding = False
+        name = self._anonymous_name(token)
+        if self.current_token.type == AS:
+            explicit_binding = True
+            self.eat(AS)
+            if self.current_token.type != ID:
+                self.exception(
+                    "expected an identifier after 'as'",
+                    token=self.current_token,
+                    hint="Write a binding name like: split d20 as roll | roll == 20 -> 10",
+                )
+            name = Val(self.current_token)
+            self.eat(ID)
         self.eat_match_separators()
         clauses = []
+        saw_otherwise = False
         while self.current_token.type == ELSE:
             self.eat(ELSE)
             if self.current_token.type == OTHERWISE:
                 self.eat(OTHERWISE)
                 condition = None
                 otherwise = True
+                saw_otherwise = True
             else:
-                condition = self.expr()
+                condition = self._split_guard(name, allow_anonymous_sugar=not explicit_binding)
                 otherwise = False
-            self.eat(ASSIGN)
-            clauses.append(MatchClause(condition, self.expr(), otherwise=otherwise))
+            self.eat(RES)
+            clauses.append(SplitClause(condition, self.expr(), otherwise=otherwise))
             self.eat_match_separators()
         if not clauses:
             self.exception(
-                "expected at least one match clause",
+                "expected at least one split clause",
                 token=self.current_token,
-                hint="Add a clause like '| otherwise = ...' or '| condition = ...'.",
+                hint="Add a clause like '| otherwise -> 0' or '| == 20 -> 10'.",
             )
-        return Match(value, name, clauses, token)
+        zero_node = Val(Token(INTEGER, 0, span=token.span))
+        if self.current_token.type == SPLITZERO:
+            if saw_otherwise:
+                self.exception(
+                    "'||' cannot appear after an explicit otherwise branch",
+                    token=self.current_token,
+                    hint="Remove '||' or remove the explicit '| otherwise -> 0' branch.",
+                )
+            self.eat(SPLITZERO)
+            clauses.append(SplitClause(None, zero_node, otherwise=True))
+            return Split(value, name, clauses, token)
+        if not saw_otherwise:
+            clauses.append(SplitClause(None, zero_node, otherwise=True))
+            return Split(value, name, clauses, token, implicit_zero_warning=True)
+        return Split(value, name, clauses, token)
 
     def factor(self):
         if self.current_token.type == LBRACK:
             return self.sweep_literal()
         elif self.current_token.type == LBRACE:
             return self.measure_literal()
+        elif self.current_token.type == SPLIT:
+            return self.split_expr()
         elif self.current_token.type == MATCH:
-            return self.match_expr()
+            self.exception(
+                "'match' was replaced by 'split'",
+                token=self.current_token,
+                hint="Rewrite this as 'split ... | guard -> result'.",
+            )
         elif self.current_token.type == LPAREN:
             self.eat(LPAREN)
             node = self.expr()
@@ -348,6 +447,10 @@ class DiceParser(Parser):
             token = self.current_token
             self.eat(MINUS)
             return UnOp(self.factor(), token)
+        elif self.current_token.type == AT:
+            token = self.current_token
+            self.eat(AT)
+            return Val(Token(ID, "@", span=token.span))
         elif self.current_token.type == ID:
             token = self.current_token
             self.eat(ID)
@@ -373,16 +476,101 @@ class DiceParser(Parser):
                 hint="Try a number, identifier, function call, parenthesized expression, or dice expression.",
             )
 
-    def call(self, name):
+    def call_arg(self):
+        if self.current_token.type == ID and self.peek_token.type == ASSIGN:
+            name = Val(self.current_token)
+            self.eat(ID)
+            self.eat(ASSIGN)
+            return CallArg(self.expr(), name=name)
+        return CallArg(self.expr())
+
+    def call(self, name, prefixed_args=None):
         self.eat(LPAREN)
-        args = []
+        args = [] if prefixed_args is None else list(prefixed_args)
         if self.current_token.type != RPAREN:
-            args.append(self.expr())
+            args.append(self.call_arg())
             while self.current_token.type == COMMA:
                 self.eat(COMMA)
-                args.append(self.expr())
+                args.append(self.call_arg())
         self.eat(RPAREN)
         return Call(name, args)
+
+    def parameter(self):
+        if self.current_token.type != ID:
+            self.exception(
+                "expected a parameter name",
+                token=self.current_token,
+                hint="Use an identifier like 'x' or 'slot_level'.",
+            )
+        name = Val(self.current_token)
+        self.eat(ID)
+        default = None
+        if self.current_token.type == ASSIGN:
+            self.eat(ASSIGN)
+            default = self.expr()
+        return Param(name, default=default)
+
+    def parameter_list(self):
+        params = []
+        saw_default = False
+        if self.current_token.type != RPAREN:
+            while True:
+                parameter = self.parameter()
+                if parameter.default is None and saw_default:
+                    self.exception(
+                        "required parameters cannot follow parameters with defaults",
+                        token=parameter.token,
+                        hint="Move required parameters before optional ones.",
+                    )
+                if parameter.default is not None:
+                    saw_default = True
+                params.append(parameter)
+                if self.current_token.type != COMMA:
+                    break
+                self.eat(COMMA)
+        return params
+
+    def function_body(self, token):
+        if self.current_token.type != SEMI:
+            return self.expr()
+
+        self.eat_one_or_more(SEMI)
+        self.eat(INDENT)
+        self.eat_zero_or_more(SEMI)
+        items = []
+        while self.current_token.type != DEDENT:
+            if self.current_token.type == ID and self.peek_token.type == ASSIGN:
+                name = Val(self.current_token)
+                self.eat(ID)
+                assign_token = self.current_token
+                self.eat(ASSIGN)
+                items.append(LocalAssign(name, self.expr(), assign_token))
+            else:
+                items.append(self.expr())
+            if self.current_token.type == DEDENT:
+                break
+            self.eat_one_or_more(SEMI)
+            self.eat_zero_or_more(SEMI)
+        self.eat(DEDENT)
+        if not items:
+            self.exception(
+                "expected a function body",
+                token=token,
+                hint="Add at least one indented expression line after the function header.",
+            )
+        if any(type(item).__name__ != "LocalAssign" for item in items[:-1]):
+            self.exception(
+                "only assignments may appear before the final expression in a function body",
+                token=getattr(items[-2], "token", token),
+                hint="Use local assignments first, then end the function with one final expression line.",
+            )
+        if type(items[-1]).__name__ == "LocalAssign":
+            self.exception(
+                "function bodies must end with an expression",
+                token=items[-1].token,
+                hint="Add a final expression line after the local assignments.",
+            )
+        return BlockBody(items[:-1], items[-1], token)
 
     def try_function_definition(self):
         if self.current_token.type != ID or self.peek_token.type != LPAREN:
@@ -393,50 +581,30 @@ class DiceParser(Parser):
             name_token = self.current_token
             self.eat(ID)
             self.eat(LPAREN)
-            params = []
-            if self.current_token.type != RPAREN:
-                if self.current_token.type != ID:
-                    self.restore(state)
-                    return None
-                params.append(Val(self.current_token))
-                self.eat(ID)
-                while self.current_token.type == COMMA:
-                    self.eat(COMMA)
-                    if self.current_token.type != ID:
-                        self.restore(state)
-                        return None
-                    params.append(Val(self.current_token))
-                    self.eat(ID)
+            params = self.parameter_list()
             self.eat(RPAREN)
-            if self.current_token.type != ASSIGN:
+            if self.current_token.type != COLON:
                 self.restore(state)
                 return None
-            self.eat(ASSIGN)
-            return FunctionDef(Val(name_token), params, self.expr())
+            self.eat(COLON)
+            return FunctionDef(Val(name_token), params, self.function_body(name_token))
         except ParserError:
             self.restore(state)
             return None
 
     def roll(self):
-        node = self.factor()
-        if self.current_token.type == ROLL:
-            token = self.current_token
-            self.eat(ROLL)
-            node2 = self.factor()
-            if self.current_token.type in [HIGH, LOW]:
-                token2 = self.current_token
-                self.eat(token2.type)
-                return TenOp(node, token, node2, token2, self.factor())
-            node = BinOp(node, token, node2)
-        return node
+        return self._continue_roll(self.factor())
+
+    def repeated(self):
+        return self._continue_repeated(self.factor())
 
     def term(self):
-        node = self.roll()
+        node = self.repeated()
         while self.current_token.type in [MUL, DIV, FLOORDIV]:
             # MUL and DIV are both binary operators so they can be created by the same commands
             token = self.current_token
             self.eat(token.type)
-            node = BinOp(node, token, self.roll())
+            node = BinOp(node, token, self.repeated())
         return node
 
     def side(self):
@@ -468,15 +636,7 @@ class DiceParser(Parser):
             if self.current_token.type == ELSE:
                 token2 = self.current_token
                 self.eat(ELSE)
-                node = TenOp(node, token, new_node1, token2, self.comp())
-            elif self.current_token.type == ELSEDIV:
-                token2 = self.current_token
-                self.eat(ELSEDIV)
-                node = BinOp(node, token2, new_node1)
-            elif self.current_token.type == ELSEFLOORDIV:
-                token2 = self.current_token
-                self.eat(ELSEFLOORDIV)
-                node = BinOp(node, token2, new_node1)
+                node = TenOp(node, token, new_node1, token2, self._relative_branch_else(new_node1.token))
             else:
                 # no tenery operator just normal resolve
                 node = BinOp(node, token, new_node1)
@@ -492,15 +652,9 @@ class DiceParser(Parser):
 
         name = Val(self.current_token)
         self.eat(ID)
-        args = [value]
+        args = [CallArg(value)]
         if self.current_token.type == LPAREN:
-            self.eat(LPAREN)
-            if self.current_token.type != RPAREN:
-                args.append(self.expr())
-                while self.current_token.type == COMMA:
-                    self.eat(COMMA)
-                    args.append(self.expr())
-            self.eat(RPAREN)
+            return self.call(name, prefixed_args=args)
         return Call(name, args)
 
     def expr(self):
@@ -544,11 +698,21 @@ class DiceParser(Parser):
         nodes = []
         self.eat_zero_or_more(SEMI)
         while self.current_token.type != EOF:
-            nodes.append(self.statement())
+            statement = self.statement()
+            nodes.append(statement)
             if self.current_token.type == EOF:
                 break
-            self.eat_one_or_more(SEMI)
-            self.eat_zero_or_more(SEMI)
+            if self.current_token.type == SEMI:
+                self.eat_one_or_more(SEMI)
+                self.eat_zero_or_more(SEMI)
+                continue
+            if type(statement).__name__ == "FunctionDef" and type(statement.body).__name__ == "BlockBody":
+                continue
+            self.exception(
+                "expected a statement separator",
+                token=self.current_token,
+                hint="Separate top-level statements with a newline or ';'.",
+            )
         if not nodes:
             self.exception(
                 "expected a statement",

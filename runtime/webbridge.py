@@ -646,11 +646,13 @@ def list_symbols():
     builtins = []
     for name in sorted(executor.functions):
         entry = executor.functions[name]
+        parameters = getattr(entry, "parameters", ())
         builtins.append(
             {
                 "name": name,
-                "arity": entry.arity,
-                "variadic": entry.variadic,
+                "arity": len(parameters),
+                "variadic": getattr(entry, "variadic", False),
+                "parameters": [parameter.name for parameter in parameters],
             }
         )
     return {
@@ -837,10 +839,11 @@ def _completion_options(interpreter, suggestions):
         entry = interpreter.executor.functions.get(suggestion)
         if entry is None:
             entry = interpreter.callable_scope.get(suggestion)
-        if isinstance(entry, CallableEntry) and entry.arity is not None:
-            option["detail"] = "{} args".format(entry.arity)
-        elif getattr(entry, "variadic", False):
+        parameters = getattr(entry, "parameters", None)
+        if getattr(entry, "variadic", False):
             option["detail"] = "variadic"
+        elif parameters is not None:
+            option["detail"] = "{} args".format(len(parameters))
         options.append(option)
     return options
 

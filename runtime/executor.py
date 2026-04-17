@@ -6,20 +6,222 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
+import functools
 import inspect
-from typing import Any, get_args, get_origin, get_type_hints
+from itertools import product
+from typing import Any, get_origin, get_type_hints
 
 import diceengine
+from diceparser import DiceParser
+from lexer import Lexer, ASSIGN, SEMI, PRINT
+
+
+MISSING = object()
+_DICEFUNCTION_ATTR = "_dicefunction_metadata"
+
+
+@dataclass(frozen=True)
+class DiceDefault:
+    source: str
+    ast: object
+
+
+def D(source):
+    if not isinstance(source, str) or not source.strip():
+        raise Exception("D(...) expects a non-empty dice expression string")
+    ast = DiceParser(Lexer(source)).parse()
+    if type(ast).__name__ in {"FunctionDef", "Import"}:
+        raise Exception("D(...) defaults must be expressions, not top-level statements")
+    if type(ast).__name__ == "VarOp" and getattr(ast.op, "type", None) == SEMI:
+        raise Exception("D(...) defaults must be a single expression")
+    if type(ast).__name__ == "BinOp" and getattr(ast.op, "type", None) == ASSIGN:
+        raise Exception("D(...) defaults must be expressions, not assignments")
+    if type(ast).__name__ == "UnOp" and getattr(ast.op, "type", None) == PRINT:
+        raise Exception("D(...) defaults must be expressions, not print statements")
+    return DiceDefault(source, ast)
+
+
+@dataclass(frozen=True)
+class ParameterSpec:
+    name: str
+    default_value: object = MISSING
+    annotation: object = None
+
+    @property
+    def has_default(self):
+        return self.default_value is not MISSING
+
+
+@dataclass(frozen=True)
+class DiceFunctionMetadata:
+    export_name: str
+    raw_function: object
+    parameters: tuple[ParameterSpec, ...]
+    signature: inspect.Signature
 
 
 @dataclass
 class HostFunction:
     name: str
     function: object
-    arity: int | None = None
+    parameters: tuple[ParameterSpec, ...] = ()
     variadic: bool = False
     sweep_mode: bool = False
-    parameter_annotations: tuple[object, ...] = ()
+
+
+def validate_runtime_value(value):
+    if value is None:
+        return value
+    if isinstance(value, (int, float, str, diceengine.SweepValues, diceengine.FiniteMeasure, diceengine.Distribution, diceengine.Sweep)):
+        return value
+    raise Exception("Unsupported host value type {}".format(type(value)))
+
+
+def _identifier_names(node):
+    names = set()
+    if node is None:
+        return names
+    node_type = type(node).__name__
+    if node_type == "Val" and getattr(getattr(node, "token", None), "type", None) == "ID":
+        names.add(node.value)
+    for value in getattr(node, "__dict__", {}).values():
+        if isinstance(value, list):
+            for item in value:
+                names.update(_identifier_names(item))
+        else:
+            names.update(_identifier_names(value))
+    return names
+
+
+def _function_type_hints(function):
+    try:
+        return get_type_hints(function)
+    except Exception:
+        return {}
+
+
+def callable_parameters(function, variadic=False):
+    if variadic:
+        return ()
+    signature = inspect.signature(function)
+    parameters = list(signature.parameters.values())
+    names = [parameter.name for parameter in parameters]
+    hints = _function_type_hints(function)
+    specs = []
+    for parameter in parameters:
+        if parameter.kind != inspect.Parameter.POSITIONAL_OR_KEYWORD:
+            raise Exception("Python functions only support POSITIONAL_OR_KEYWORD parameters")
+        default_value = MISSING
+        if parameter.default is not inspect._empty:
+            default_value = parameter.default
+            if isinstance(default_value, DiceDefault):
+                referenced = _identifier_names(default_value.ast)
+                forbidden = sorted(name for name in names if name in referenced)
+                if forbidden:
+                    raise Exception(
+                        "D(...) defaults may only reference globals, not parameters: {}".format(", ".join(forbidden))
+                    )
+        specs.append(
+            ParameterSpec(
+                name=parameter.name,
+                default_value=default_value,
+                annotation=hints.get(parameter.name),
+            )
+        )
+    return tuple(specs)
+
+
+def _annotation_requests_sweep(function):
+    hints = _function_type_hints(function)
+    for annotation in hints.values():
+        if _annotation_is_sweep(annotation):
+            return True
+    return False
+
+
+def _annotation_is_sweep(annotation):
+    return annotation is diceengine.Sweep or get_origin(annotation) is diceengine.Sweep
+
+
+def _convert_projected_argument(projected, annotation):
+    if annotation is diceengine.Distribution:
+        return diceengine._coerce_to_distribution_cell(projected)
+    if annotation is diceengine.FiniteMeasure:
+        return diceengine._coerce_to_measure_cell(projected)
+    return projected
+
+
+def _lifted_python_call(function, parameters, values):
+    projected_arguments = []
+    combined_sweeps = []
+    for index, value in enumerate(values):
+        annotation = parameters[index].annotation if index < len(parameters) else None
+        if _annotation_is_sweep(annotation):
+            projected_arguments.append((False, value, annotation))
+            continue
+        sweep = diceengine._coerce_value_to_sweep(value)
+        projected_arguments.append((True, sweep, annotation))
+        combined_sweeps.append(sweep)
+    combined_axes = diceengine._union_axes(combined_sweeps)
+    if not combined_axes:
+        projected = []
+        for is_projected, value, annotation in projected_arguments:
+            if not is_projected:
+                projected.append(value)
+                continue
+            projected.append(_convert_projected_argument(value.only_value(), annotation))
+        return validate_runtime_value(function(*projected))
+    cells = {}
+    for coordinates in ([()] if not combined_axes else product(*(axis.values for axis in combined_axes))):
+        projected = []
+        for is_projected, value, annotation in projected_arguments:
+            if not is_projected:
+                projected.append(value)
+                continue
+            projected.append(_convert_projected_argument(value.lookup(combined_axes, coordinates), annotation))
+        cells[coordinates] = validate_runtime_value(function(*projected))
+    return diceengine.Sweep(combined_axes, cells)
+
+
+def dicefunction(function=None, *, name=None):
+    def decorate(raw_function):
+        export_name = name if name is not None else raw_function.__name__
+        if not export_name:
+            raise Exception("Python functions must have a name")
+        parameters = callable_parameters(raw_function)
+        signature = inspect.signature(raw_function)
+
+        @functools.wraps(raw_function)
+        def wrapped(*args, **kwargs):
+            bound = signature.bind(*args, **kwargs)
+            bound.apply_defaults()
+            values = []
+            for parameter in parameters:
+                value = bound.arguments[parameter.name]
+                if isinstance(value, DiceDefault):
+                    raise Exception("D(...) defaults are only resolved by dice-session invocation")
+                values.append(value)
+            return _lifted_python_call(raw_function, parameters, values)
+
+        setattr(
+            wrapped,
+            _DICEFUNCTION_ATTR,
+            DiceFunctionMetadata(
+                export_name=export_name,
+                raw_function=raw_function,
+                parameters=parameters,
+                signature=signature,
+            ),
+        )
+        return wrapped
+
+    if function is None:
+        return decorate
+    return decorate(function)
+
+
+def get_dicefunction_metadata(function):
+    return getattr(function, _DICEFUNCTION_ATTR, None)
 
 
 class Executor(ABC):
@@ -30,53 +232,34 @@ class Executor(ABC):
         self.render_config = render_config if render_config is not None else diceengine.RenderConfig()
         self._register_builtin_functions()
 
-    def _callable_arity(self, function):
-        signature = inspect.signature(function)
-        arity = 0
-        for parameter in signature.parameters.values():
-            if parameter.kind not in (inspect.Parameter.POSITIONAL_ONLY, inspect.Parameter.POSITIONAL_OR_KEYWORD):
-                raise Exception("Python functions only support fixed positional arguments")
-            if parameter.default is not inspect._empty:
-                raise Exception("Python functions only support fixed positional arguments")
-            arity += 1
-        return arity
+    def _callable_parameters(self, function, variadic=False):
+        metadata = get_dicefunction_metadata(function)
+        if metadata is not None and not variadic:
+            return metadata.parameters
+        return callable_parameters(function, variadic=variadic)
 
     def _type_hints(self, function):
-        try:
-            return get_type_hints(function)
-        except Exception:
-            return {}
+        return _function_type_hints(function)
 
     def _annotation_requests_sweep(self, function):
-        hints = self._type_hints(function)
-        for annotation in hints.values():
-            if annotation is diceengine.Sweep or get_origin(annotation) is diceengine.Sweep:
-                return True
-        return False
+        return _annotation_requests_sweep(function)
 
-    def _parameter_annotations(self, function):
-        hints = self._type_hints(function)
-        signature = inspect.signature(function)
-        annotations = []
-        for parameter in signature.parameters.values():
-            if parameter.kind in (inspect.Parameter.POSITIONAL_ONLY, inspect.Parameter.POSITIONAL_OR_KEYWORD):
-                annotations.append(hints.get(parameter.name))
-        return tuple(annotations)
-
-    def _register_host_function(self, function, name=None, variadic=False, sweep_mode=None):
-        callable_name = name if name is not None else function.__name__
+    def _register_host_function(self, function, name=None, variadic=False, sweep_mode=None, require_decorated=False):
+        metadata = get_dicefunction_metadata(function)
+        if require_decorated and metadata is None:
+            raise Exception("Python functions must be decorated with @dicefunction to be registered")
+        callable_name = name if name is not None else (metadata.export_name if metadata is not None else function.__name__)
         if not callable_name:
             raise Exception("Python functions must have a name")
         if callable_name in self.functions:
             raise Exception("Duplicate function definition for {}".format(callable_name))
-        arity = None if variadic else self._callable_arity(function)
+        parameters = self._callable_parameters(function, variadic=variadic)
         entry = HostFunction(
             callable_name,
             function=function,
-            arity=arity,
+            parameters=parameters,
             variadic=variadic,
             sweep_mode=self._annotation_requests_sweep(function) if sweep_mode is None else sweep_mode,
-            parameter_annotations=self._parameter_annotations(function),
         )
         self.functions[callable_name] = entry
         return function
@@ -111,6 +294,8 @@ class Executor(ABC):
             "std",
             "cum",
             "surv",
+            "type",
+            "shape",
             "repeat_sum",
             "sumover",
             "total",
@@ -119,9 +304,10 @@ class Executor(ABC):
         ]:
             self._register_host_function(getattr(self, name), name=name, sweep_mode=True)
         self._register_host_function(self.render, name="render", variadic=True, sweep_mode=True)
+        self._register_host_function(self.renderp, name="renderp", variadic=True, sweep_mode=True)
 
     def register_function(self, function, name=None):
-        return self._register_host_function(function, name=name)
+        return self._register_host_function(function, name=name, require_decorated=True)
 
     def repeat_sum(self, count, value):
         return diceengine.repeat_sum_with(self.add, count, value)
@@ -134,6 +320,9 @@ class Executor(ABC):
 
     def render(self, *args):
         return diceengine.render(*args, render_config=self.render_config)
+
+    def renderp(self, *args):
+        return diceengine.renderp(*args, render_config=self.render_config)
 
     def set_render_mode(self, mode):
         self.render_config = self.render_config.with_mode(mode)
@@ -174,6 +363,12 @@ class Executor(ABC):
     @abstractmethod
     def sample(self, value):
         raise NotImplementedError
+
+    def type(self, value):
+        return diceengine.runtime_type(value)
+
+    def shape(self, value):
+        return diceengine.runtime_shape(value)
 
     @abstractmethod
     def reselse(self, condition, distrib_if, distrib_else):

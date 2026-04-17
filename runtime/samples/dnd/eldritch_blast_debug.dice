@@ -1,0 +1,30 @@
+# Inspect the shape of eldritch blast as the rules stack up.
+#
+# This contrasts:
+# - the plain spell
+# - the Agonizing Blast invocation
+# - Hex on top of Agonizing Blast
+# - three-beam hit-count distribution at 11th level
+
+import "std:dnd/core.dice"
+import "std:dnd/spells.dice"
+
+ac = 15
+bonus = 7
+cha = 4
+level = 11
+beams = eldritch_blast_beams(level)
+
+plain_beam = eldritch_blast(ac, bonus)
+agonizing_beam = agonizing_eldritch_blast(ac, bonus, cha)
+hexed_beam = hex_eldritch_blast(ac, bonus, cha)
+hit_count = hit(ac, bonus) ^ beams
+plain_action = eldritch_blast_by_level(ac, bonus, level=level)
+agonizing_action = agonizing_eldritch_blast_by_level(ac, bonus, cha, level=level)
+hexed_action = hex_eldritch_blast_action(beams, ac, bonus, cha)
+
+render(hit_count, "Hits landed", "11th-level eldritch blast hit-count distribution")
+render(plain_beam, "Damage", "Single plain eldritch blast beam")
+render(agonizing_beam, "Damage", "Single Agonizing Blast beam")
+render(hexed_beam, "Damage", "Single Hex + Agonizing Blast beam")
+render(plain_action, "Plain", agonizing_action, "Agonizing", hexed_action, "Hex + Agonizing", "Damage", "Three-beam eldritch blast profiles")

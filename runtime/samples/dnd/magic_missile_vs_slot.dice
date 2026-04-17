@@ -1,0 +1,5 @@
+# Track exact magic missile damage as slot level rises.
+
+import "std:dnd/spells.dice"
+
+render(~magic_missile([SLOT:1..9]), "Spell slot", "Magic missile expected damage by slot")

@@ -78,6 +78,12 @@ class WebBridgeTest(unittest.TestCase):
         self.assertEqual(payload["from"], len("fireball = 1\n"))
         self.assertEqual(payload["to"], len(source))
 
+    def test_complete_includes_defined_function_names(self):
+        source = "attack(ac): d20 >= ac\natt"
+        payload = webbridge.complete(source, len(source))
+        labels = {option["label"] for option in payload["options"]}
+        self.assertIn("attack", labels)
+
     def test_complete_suggests_stdlib_import_paths(self):
         payload = webbridge.complete('import "std:dnd/', len('import "std:dnd/'))
         labels = {option["label"] for option in payload["options"]}

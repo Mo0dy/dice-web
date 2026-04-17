@@ -1,0 +1,9 @@
+# Compare ranged damage plans across armor classes.
+
+import "std:dnd/weapons.dice"
+
+longbow = ~longbow_attack([AC:10..22], 9, 4)
+hunters_mark = ~hunters_mark_longbow([AC:10..22], 9, 4)
+sharpshooter_shot = ~sharpshooter([AC:10..22], 8, 4)
+
+render(longbow, "Longbow", hunters_mark, "Hunter's Mark", sharpshooter_shot, "Sharpshooter", "Armor class", "Ranged damage packages vs AC")

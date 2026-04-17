@@ -1,0 +1,9 @@
+# Compare several 11th-level eldritch blast packages across armor classes.
+
+import "std:dnd/spells.dice"
+
+plain = ~eldritch_blast_by_level([AC:10..22], 7, level=11)
+agonizing = ~agonizing_eldritch_blast_by_level([AC:10..22], 7, 4, level=11)
+hexed = ~hex_eldritch_blast_action(3, [AC:10..22], 7, 4)
+
+render(plain, "Plain", agonizing, "Agonizing", hexed, "Hex + Agonizing", "Armor class", "11th-level eldritch blast vs AC")

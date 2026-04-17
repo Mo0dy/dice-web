@@ -85,7 +85,7 @@ class VarOp(AST):
 
 
 class FunctionDef(AST):
-    """Top-level one-line function definition."""
+    """Top-level function definition."""
     def __init__(self, name, params, body):
         self.name = name
         self.params = params
@@ -94,7 +94,7 @@ class FunctionDef(AST):
 
     def __repr__(self):
         result = "FunctionDef: {}".format(self.name.value)
-        result += '\t|'.join(('\n' + "params: " + ", ".join(param.value for param in self.params)).splitlines(True))
+        result += '\t|'.join(('\n' + "params: " + ", ".join(param.name.value for param in self.params)).splitlines(True))
         result += '\t|'.join(('\n' + "body: " + str(self.body).lstrip()).splitlines(True))
         return result
 
@@ -113,8 +113,64 @@ class Call(AST):
         return result
 
 
-class MatchClause(AST):
-    """One guarded clause in a match expression."""
+class Param(AST):
+    """Named function parameter with an optional default expression."""
+
+    def __init__(self, name, default=None):
+        self.name = name
+        self.default = default
+        self.token = name.token
+
+    def __repr__(self):
+        if self.default is None:
+            return "Param: {}".format(self.name.value)
+        return "Param: {}={}".format(self.name.value, self.default)
+
+
+class CallArg(AST):
+    """Function call argument, optionally passed by keyword."""
+
+    def __init__(self, value, name=None):
+        self.name = name
+        self.value = value
+        self.token = name.token if name is not None else getattr(value, "token", getattr(value, "token1", None))
+
+    def __repr__(self):
+        if self.name is None:
+            return "CallArg: {}".format(self.value)
+        return "CallArg: {}={}".format(self.name.value, self.value)
+
+
+class LocalAssign(AST):
+    """Function-local assignment inside an indented function body."""
+
+    def __init__(self, name, value, token):
+        self.name = name
+        self.value = value
+        self.token = token
+
+    def __repr__(self):
+        return "LocalAssign: {}={}".format(self.name.value, self.value)
+
+
+class BlockBody(AST):
+    """Indented function body consisting of local assignments and a final expression."""
+
+    def __init__(self, statements, result, token):
+        self.statements = statements
+        self.result = result
+        self.token = token
+
+    def __repr__(self):
+        result = "BlockBody"
+        for statement in self.statements:
+            result += '\t|'.join(('\n' + "statement: " + str(statement).lstrip()).splitlines(True))
+        result += '\t|'.join(('\n' + "result: " + str(self.result).lstrip()).splitlines(True))
+        return result
+
+
+class SplitClause(AST):
+    """One guarded clause in a split expression."""
     def __init__(self, condition, result, otherwise=False):
         self.condition = condition
         self.result = result
@@ -123,21 +179,22 @@ class MatchClause(AST):
 
     def __repr__(self):
         label = "otherwise" if self.otherwise else str(self.condition).lstrip()
-        result = "MatchClause: {}".format(label)
+        result = "SplitClause: {}".format(label)
         result += '\t|'.join(('\n' + "result: " + str(self.result).lstrip()).splitlines(True))
         return result
 
 
-class Match(AST):
-    """Expression-level match with a shared bound value."""
-    def __init__(self, value, name, clauses, token):
+class Split(AST):
+    """Expression-level split with a shared bound value."""
+    def __init__(self, value, name, clauses, token, implicit_zero_warning=False):
         self.value = value
         self.name = name
         self.clauses = clauses
         self.token = token
+        self.implicit_zero_warning = implicit_zero_warning
 
     def __repr__(self):
-        result = "Match: {}".format(self.name.value)
+        result = "Split: {}".format(self.name.value)
         result += '\t|'.join(('\n' + "value: " + str(self.value).lstrip()).splitlines(True))
         for clause in self.clauses:
             result += '\t|'.join(('\n' + "clause: " + str(clause).lstrip()).splitlines(True))

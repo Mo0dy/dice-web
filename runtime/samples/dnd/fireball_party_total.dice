@@ -1,0 +1,9 @@
+# Expected total party damage from fireball against mixed save bonuses.
+
+import "std:dnd/spells.dice"
+
+party_total(slot_level=3, dc=15, save_bonuses=[party:0, 2, 5, 7]):
+    fireball_damage = fireball(dc, save_bonuses, slot_level=slot_level)
+    sumover("party", ~fireball_damage)
+
+render(party_total(slot_level=[SLOT:3..7]), "Spell slot", "Expected total fireball damage vs party")

@@ -426,6 +426,52 @@ def _coerce_value_to_sweep(value):
     return Sweep.scalar(value)
 
 
+def _runtime_type_name(value):
+    if isinstance(value, Distribution):
+        return "Distribution"
+    if isinstance(value, FiniteMeasure):
+        return "FiniteMeasure"
+    if isinstance(value, SweepValues):
+        return "SweepValues"
+    if isinstance(value, Sweep):
+        cell_type_names = tuple(dict.fromkeys(_runtime_type_name(cell) for cell in value.values()))
+        if len(cell_type_names) == 1:
+            return "Sweep[{}]".format(cell_type_names[0])
+        return "Sweep[mixed:{}]".format(", ".join(cell_type_names))
+    if isinstance(value, int):
+        return "int"
+    if isinstance(value, float):
+        return "float"
+    if isinstance(value, str):
+        return "str"
+    runtime_error("unsupported runtime value {}".format(type(value)))
+
+
+def runtime_type(value):
+    return _runtime_type_name(value)
+
+
+def _runtime_shape_axis_entries(axes):
+    entries = []
+    unnamed_count = 0
+    for axis in axes:
+        if axis.name == axis.key or axis.name.startswith("sweep_"):
+            unnamed_count += 1
+            label = "<unnamed{}>".format(unnamed_count)
+        else:
+            label = axis.name
+        entries.append("{}: {}".format(label, repr(axis.values)))
+    return entries
+
+
+def runtime_shape(value):
+    if isinstance(value, SweepValues):
+        return "[{}]".format(", ".join(_runtime_shape_axis_entries((value.axis(),))))
+    if isinstance(value, Sweep):
+        return "[{}]".format(", ".join(_runtime_shape_axis_entries(value.axes)))
+    return "[]"
+
+
 def _coerce_to_measure_sweep(value):
     sweep = _coerce_value_to_sweep(value)
     return Sweep(sweep.axes, {coordinates: _coerce_to_measure_cell(cell) for coordinates, cell in sweep.items()})
@@ -1068,13 +1114,17 @@ def _require_render_text(value, message, hint):
     return value
 
 
-def render(*args, render_config=None):
+def _render(*args, render_config=None, assume_probability=False):
     viewer = _get_viewer()
     render_config = render_config if render_config is not None else RenderConfig()
     if not args:
         runtime_error("render expects at least one expression")
     if len(args) == 1:
-        return viewer.render_result(args[0], render_config=render_config).output_path
+        return viewer.render_result(
+            args[0],
+            render_config=render_config,
+            assume_probability=assume_probability,
+        ).output_path
     if len(args) == 2:
         runtime_error(
             "render titles require an axis label before the title",
@@ -1087,7 +1137,13 @@ def render(*args, render_config=None):
                 "render comparisons require a label for every expression",
                 hint='Call render(value1, "Label 1", value2, "Label 2").',
             )
-        return viewer.render_result(args[0], x_label=axis_label, title=args[2], render_config=render_config).output_path
+        return viewer.render_result(
+            args[0],
+            x_label=axis_label,
+            title=args[2],
+            render_config=render_config,
+            assume_probability=assume_probability,
+        ).output_path
 
     comparison_axis_label = None
     comparison_title = None
@@ -1124,4 +1180,13 @@ def render(*args, render_config=None):
         x_label=comparison_axis_label,
         title=comparison_title,
         render_config=render_config,
+        assume_probability=assume_probability,
     ).output_path
+
+
+def render(*args, render_config=None):
+    return _render(*args, render_config=render_config, assume_probability=False)
+
+
+def renderp(*args, render_config=None):
+    return _render(*args, render_config=render_config, assume_probability=True)

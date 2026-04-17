@@ -1,36 +1,24 @@
-# D&D ability score analysis using classic 4d6 drop lowest.
+# Exact 5e ability score generation analysis using 4d6 drop lowest.
 #
-# This file answers:
-# - exact one-roll score probabilities
-# - probability that at least one of the 6 rolls reaches a target
-# - distribution of the sum of six ability modifiers
-# - probability that a character has at least one exact target score
-# - probability that one score is larger than x
-#
-# Modifier uses standard 5e semantics: floor((score - 10) / 2).
-# In dice, integer division already rounds down.
+# This sample answers:
+# - the exact single-score distribution
+# - the chance at least one of six scores reaches a target
+# - the distribution of the total modifier sum
+# - the chance at least one score is exactly a target
+# - the chance a single score beats a threshold
+
+import "std:dnd/core.dice"
 
 score = 4 d 6 h 3
-mod(x) = (x - 10) / 2
 
-# 1. Exact probability for each single rolled score.
 one_score_exact = score
-
-# 2. Probability that at least one of the 6 rolled scores reaches the target.
-any_score_at_least_target = ((repeat_sum(6, score >= [TARGET:3:18])) >= 1) $ mean
-
-# 3. Distribution of the total modifier sum across six independent scores.
-total_modifier_sum = repeat_sum(6, mod(score))
-
-# 4. Probability that a character has at least one score equal to the target.
-# Read the TARGET=18 point from this plot for "at least one 18".
-at_least_one_exact_target = ((repeat_sum(6, score == [TARGET:3:18])) >= 1) $ mean
-
-# 5. Probability that a single score is larger than x.
-one_score_greater_than_x = (score > [X:3:18]) $ mean
+any_score_at_least_target = (((score >= [TARGET:3..18]) ^ 6) >= 1) $ mean
+total_modifier_sum = ability_mod(score) ^ 6
+at_least_one_exact_target = (((score == [TARGET:3..18]) ^ 6) >= 1) $ mean
+one_score_greater_than_x = (score > [X:3..18]) $ mean
 
 render(one_score_exact, "Ability score", "Single ability score distribution")
-render(any_score_at_least_target, "Target score", "Chance any of 6 scores reaches target")
+renderp(any_score_at_least_target, "Target score", "Chance any of 6 scores reaches target")
 render(total_modifier_sum, "Total modifier sum", "Total modifier sum across 6 scores")
-render(at_least_one_exact_target, "Target score", "Chance any of 6 scores equals target")
-render(one_score_greater_than_x, "Threshold x", "Chance a single score is greater than x")
+renderp(at_least_one_exact_target, "Target score", "Chance any of 6 scores equals target")
+renderp(one_score_greater_than_x, "Threshold x", "Chance a single score is greater than x")

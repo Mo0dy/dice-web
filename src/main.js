@@ -1107,7 +1107,6 @@ function installAceAutocompletion() {
       void fetchEditorCompletions(position)
         .then(({ payload, source }) => {
           if (requestId !== completionRequestId) {
-            callback(null, []);
             return;
           }
 
@@ -1128,6 +1127,9 @@ function installAceAutocompletion() {
           callback(null, completions);
         })
         .catch(() => {
+          if (requestId !== completionRequestId) {
+            return;
+          }
           callback(null, []);
         });
     },
