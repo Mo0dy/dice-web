@@ -7,6 +7,10 @@ d20 + attack_bonus >= target_ac`;
 
 const LEGACY_SOURCE_STORAGE_KEY = "dice-web:last-source";
 const WORKSPACE_STORAGE_KEY = "dice-web:workspace";
+const WORKSPACE_DB_NAME = "dice-web";
+const WORKSPACE_DB_VERSION = 1;
+const WORKSPACE_STORE_NAME = "workspace";
+const WORKSPACE_RECORD_KEY = "current";
 
 const runButton = document.querySelector("#run-button");
 const shareButton = document.querySelector("#share-button");
@@ -47,6 +51,8 @@ let editorResizeFrame = 0;
 let editorResizeObserver = null;
 let fileHandles = new Map();
 let renamingFilePath = null;
+let workspaceSavePromise = null;
+let workspaceSaveQueued = false;
 
 let activeWorkspace = loadInitialWorkspace();
 
@@ -114,44 +120,158 @@ function createWorkspace({ files, entryPath, samplePath = null, activeFilePath =
   };
 }
 
+function serializeWorkspace() {
+  return {
+    samplePath: activeWorkspace.samplePath,
+    files: activeWorkspace.files,
+    entryPath: activeWorkspace.entryPath,
+    openFiles: activeWorkspace.openFiles,
+    activeFilePath: activeWorkspace.activeFilePath,
+    updatedAt: Date.now(),
+  };
+}
+
+function createWorkspaceFromSnapshot(snapshot) {
+  if (
+    !snapshot ||
+    typeof snapshot !== "object" ||
+    !snapshot.files ||
+    typeof snapshot.files !== "object" ||
+    typeof snapshot.entryPath !== "string"
+  ) {
+    return null;
+  }
+
+  return createWorkspace({
+    files: snapshot.files,
+    entryPath: snapshot.entryPath,
+    samplePath: typeof snapshot.samplePath === "string" ? snapshot.samplePath : null,
+    activeFilePath: typeof snapshot.activeFilePath === "string" ? snapshot.activeFilePath : null,
+    openFiles: Array.isArray(snapshot.openFiles) ? snapshot.openFiles : null,
+  });
+}
+
+function applyWorkspaceSnapshot(snapshot) {
+  const nextWorkspace = createWorkspaceFromSnapshot(snapshot);
+  if (!nextWorkspace) {
+    return false;
+  }
+  activeWorkspace = nextWorkspace;
+  fileHandles = new Map();
+  renamingFilePath = null;
+  renderFileTabs();
+  setEditorValue(currentSource());
+  return true;
+}
+
+function readStoredWorkspaceSnapshot() {
+  try {
+    const rawWorkspace = window.localStorage.getItem(WORKSPACE_STORAGE_KEY);
+    if (!rawWorkspace) {
+      return null;
+    }
+    const parsedWorkspace = JSON.parse(rawWorkspace);
+    if (!createWorkspaceFromSnapshot(parsedWorkspace)) {
+      return null;
+    }
+    return parsedWorkspace;
+  } catch (_error) {
+    return null;
+  }
+}
+
+function openWorkspaceDb() {
+  if (!("indexedDB" in window)) {
+    return Promise.resolve(null);
+  }
+
+  return new Promise((resolve, reject) => {
+    const request = window.indexedDB.open(WORKSPACE_DB_NAME, WORKSPACE_DB_VERSION);
+    request.addEventListener("upgradeneeded", () => {
+      const database = request.result;
+      if (!database.objectStoreNames.contains(WORKSPACE_STORE_NAME)) {
+        database.createObjectStore(WORKSPACE_STORE_NAME);
+      }
+    });
+    request.addEventListener("success", () => {
+      resolve(request.result);
+    });
+    request.addEventListener("error", () => {
+      reject(request.error ?? new Error("Failed to open workspace database"));
+    });
+  });
+}
+
+async function writeWorkspaceSnapshotToIndexedDb(snapshot) {
+  const database = await openWorkspaceDb();
+  if (!database) {
+    return;
+  }
+
+  await new Promise((resolve, reject) => {
+    const transaction = database.transaction(WORKSPACE_STORE_NAME, "readwrite");
+    const store = transaction.objectStore(WORKSPACE_STORE_NAME);
+    store.put(snapshot, WORKSPACE_RECORD_KEY);
+    transaction.addEventListener("complete", resolve);
+    transaction.addEventListener("error", () => {
+      reject(transaction.error ?? new Error("Failed to save workspace"));
+    });
+    transaction.addEventListener("abort", () => {
+      reject(transaction.error ?? new Error("Failed to save workspace"));
+    });
+  });
+}
+
+async function readWorkspaceSnapshotFromIndexedDb() {
+  const database = await openWorkspaceDb();
+  if (!database) {
+    return null;
+  }
+
+  return new Promise((resolve, reject) => {
+    const transaction = database.transaction(WORKSPACE_STORE_NAME, "readonly");
+    const store = transaction.objectStore(WORKSPACE_STORE_NAME);
+    const request = store.get(WORKSPACE_RECORD_KEY);
+    request.addEventListener("success", () => {
+      resolve(request.result ?? null);
+    });
+    request.addEventListener("error", () => {
+      reject(request.error ?? new Error("Failed to load workspace"));
+    });
+  });
+}
+
+async function restoreWorkspaceFromIndexedDb() {
+  try {
+    const indexedDbSnapshot = await readWorkspaceSnapshotFromIndexedDb();
+    const localSnapshot = readStoredWorkspaceSnapshot();
+    const indexedDbTimestamp = Number(indexedDbSnapshot?.updatedAt ?? 0);
+    const localTimestamp = Number(localSnapshot?.updatedAt ?? 0);
+
+    if (!indexedDbSnapshot || indexedDbTimestamp <= localTimestamp) {
+      return Boolean(createWorkspaceFromSnapshot(localSnapshot));
+    }
+
+    if (!applyWorkspaceSnapshot(indexedDbSnapshot)) {
+      return Boolean(createWorkspaceFromSnapshot(localSnapshot));
+    }
+    persistWorkspace();
+    return true;
+  } catch (_error) {
+    return Boolean(createWorkspaceFromSnapshot(readStoredWorkspaceSnapshot()));
+  }
+}
+
 function loadLegacySavedSource() {
   const saved = window.localStorage.getItem(LEGACY_SOURCE_STORAGE_KEY);
   return saved || DEFAULT_SOURCE;
 }
 
 function loadInitialWorkspace() {
-  const url = new URL(window.location.href);
-  const codeParam = url.searchParams.get("code");
-  if (codeParam !== null) {
-    return createWorkspace({
-      files: { "main.dice": codeParam },
-      entryPath: "main.dice",
-    });
-  }
-
-  try {
-    const rawWorkspace = window.localStorage.getItem(WORKSPACE_STORAGE_KEY);
-    if (rawWorkspace) {
-      const parsedWorkspace = JSON.parse(rawWorkspace);
-      if (
-        parsedWorkspace &&
-        typeof parsedWorkspace === "object" &&
-        parsedWorkspace.files &&
-        typeof parsedWorkspace.files === "object" &&
-        typeof parsedWorkspace.entryPath === "string"
-      ) {
-        return createWorkspace({
-          files: parsedWorkspace.files,
-          entryPath: parsedWorkspace.entryPath,
-          samplePath: typeof parsedWorkspace.samplePath === "string" ? parsedWorkspace.samplePath : null,
-          activeFilePath:
-            typeof parsedWorkspace.activeFilePath === "string" ? parsedWorkspace.activeFilePath : null,
-          openFiles: Array.isArray(parsedWorkspace.openFiles) ? parsedWorkspace.openFiles : null,
-        });
-      }
-    }
-  } catch (_error) {
-    // Ignore corrupt browser state and fall back to the legacy single-file payload.
+  const storedWorkspace = readStoredWorkspaceSnapshot();
+  const initialWorkspace = createWorkspaceFromSnapshot(storedWorkspace);
+  if (initialWorkspace) {
+    return initialWorkspace;
   }
 
   return createWorkspace({
@@ -223,19 +343,33 @@ function entrySource() {
   return activeWorkspace.files[activeWorkspace.entryPath] ?? "";
 }
 
+function queueWorkspaceSave(snapshot) {
+  if (workspaceSavePromise) {
+    workspaceSaveQueued = true;
+    return;
+  }
+
+  workspaceSavePromise = writeWorkspaceSnapshotToIndexedDb(snapshot)
+    .catch(() => {})
+    .finally(() => {
+      workspaceSavePromise = null;
+      if (workspaceSaveQueued) {
+        workspaceSaveQueued = false;
+        queueWorkspaceSave(serializeWorkspace());
+      }
+    });
+}
+
 function persistWorkspace() {
-  window.localStorage.setItem(
-    WORKSPACE_STORAGE_KEY,
-    JSON.stringify({
-      samplePath: activeWorkspace.samplePath,
-      files: activeWorkspace.files,
-      entryPath: activeWorkspace.entryPath,
-      openFiles: activeWorkspace.openFiles,
-      activeFilePath: activeWorkspace.activeFilePath,
-    }),
-  );
+  const snapshot = serializeWorkspace();
+  window.localStorage.setItem(WORKSPACE_STORAGE_KEY, JSON.stringify(snapshot));
   window.localStorage.setItem(LEGACY_SOURCE_STORAGE_KEY, entrySource());
+  queueWorkspaceSave(snapshot);
   saveUrlState();
+}
+
+function shouldWarnBeforeUnload() {
+  return Boolean(workspaceSavePromise || workspaceSaveQueued);
 }
 
 function replaceCurrentFileSource(nextSource) {
@@ -1885,6 +2019,15 @@ fileInput.addEventListener("change", async (event) => {
     fileInput.value = "";
   }
 });
+
+window.addEventListener("beforeunload", (event) => {
+  if (!shouldWarnBeforeUnload()) {
+    return;
+  }
+  event.preventDefault();
+  event.returnValue = "";
+});
+
 setActiveResultTab("charts");
 textOutput.textContent = "";
 jsonOutput.textContent = "";
@@ -1895,10 +2038,12 @@ async function boot() {
   try {
     await callWorker("init");
     samples = await callWorker("listSamples");
+    const hasSavedWorkspace = await restoreWorkspaceFromIndexedDb();
     const url = new URL(window.location.href);
     const sampleFromUrl = url.searchParams.get("sample");
     const sharedSource = url.searchParams.get("code");
-    if (sampleFromUrl) {
+
+    if (!hasSavedWorkspace && sampleFromUrl) {
       await loadSamplePath(sampleFromUrl);
       if (sharedSource) {
         activeWorkspace.files[activeWorkspace.entryPath] = sharedSource;
@@ -1907,6 +2052,16 @@ async function boot() {
         }
         persistWorkspace();
       }
+    } else if (!hasSavedWorkspace && sharedSource !== null) {
+      activeWorkspace = createWorkspace({
+        files: { "main.dice": sharedSource },
+        entryPath: "main.dice",
+      });
+      fileHandles = new Map();
+      renamingFilePath = null;
+      renderFileTabs();
+      setEditorValue(currentSource());
+      persistWorkspace();
     }
     await evaluateSource();
   } catch (error) {
