@@ -744,15 +744,18 @@ def _identifier_context(source, cursor):
     line_start = source.rfind("\n", 0, cursor) + 1
     line_buffer = source[line_start:cursor]
     start = cursor
+    end = cursor
     while start > line_start and source[start - 1] in IMPORT_PATH_CHARS:
         start -= 1
+    while end < len(source) and source[end] in IMPORT_PATH_CHARS:
+        end += 1
     return {
         "text": source[start:cursor],
         "line_buffer": line_buffer,
         "begidx": start - line_start,
         "endidx": cursor - line_start,
         "from": start,
-        "to": cursor,
+        "to": end,
     }
 
 

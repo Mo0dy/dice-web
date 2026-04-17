@@ -70,6 +70,14 @@ class WebBridgeTest(unittest.TestCase):
         self.assertIn("attack_bonus", labels)
         self.assertIn("weapon_damage", labels)
 
+    def test_complete_replaces_identifier_suffix_when_cursor_is_mid_token(self):
+        source = "fireball = 1\nfirebax"
+        payload = webbridge.complete(source, len("fireball = 1\nfireba"))
+        labels = {option["label"] for option in payload["options"]}
+        self.assertIn("fireball", labels)
+        self.assertEqual(payload["from"], len("fireball = 1\n"))
+        self.assertEqual(payload["to"], len(source))
+
     def test_complete_suggests_stdlib_import_paths(self):
         payload = webbridge.complete('import "std:dnd/', len('import "std:dnd/'))
         labels = {option["label"] for option in payload["options"]}

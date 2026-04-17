@@ -53,6 +53,7 @@ let fileHandles = new Map();
 let renamingFilePath = null;
 let workspaceSavePromise = null;
 let workspaceSaveQueued = false;
+let completionRequestId = 0;
 
 let activeWorkspace = loadInitialWorkspace();
 
@@ -476,6 +477,128 @@ function normalizeFileName(name, { preserveDirectory = false, basePath = "" } = 
   return filePath;
 }
 
+function normalizeWorkspacePath(path) {
+  const normalized = String(path ?? "").replace(/\\/g, "/").replace(/^\/+/, "");
+  const segments = normalized.split("/");
+  const resolved = [];
+  for (const segment of segments) {
+    if (!segment || segment === ".") {
+      continue;
+    }
+    if (segment === "..") {
+      if (!resolved.length) {
+        return null;
+      }
+      resolved.pop();
+      continue;
+    }
+    resolved.push(segment);
+  }
+  return resolved.join("/");
+}
+
+function workspacePathForImport(importPath, sourcePath) {
+  if (importPath.startsWith("std:")) {
+    const normalizedStdlibPath = normalizeWorkspacePath(importPath.slice(4));
+    if (!normalizedStdlibPath) {
+      return null;
+    }
+    return basename(normalizedStdlibPath).includes(".") ? normalizedStdlibPath : `${normalizedStdlibPath}.dice`;
+  }
+
+  const baseDirectory = dirname(sourcePath);
+  const combinedPath = baseDirectory ? `${baseDirectory}/${importPath}` : importPath;
+  const normalizedPath = normalizeWorkspacePath(combinedPath);
+  if (!normalizedPath) {
+    return null;
+  }
+  return basename(normalizedPath).includes(".") ? normalizedPath : `${normalizedPath}.dice`;
+}
+
+function importLinkAtPosition(source, row, column) {
+  const lines = source.split("\n");
+  const line = lines[row] ?? "";
+  const importPattern = /\bimport\s+"([^"]+)"/g;
+  let match;
+  while ((match = importPattern.exec(line)) !== null) {
+    const importPath = match[1];
+    const startColumn = match.index + match[0].indexOf(importPath);
+    const endColumn = startColumn + importPath.length;
+    if (column >= startColumn && column <= endColumn) {
+      return {
+        importPath,
+        startColumn,
+        endColumn,
+      };
+    }
+  }
+  return null;
+}
+
+function ensureFileVisible(path) {
+  if (!Object.hasOwn(activeWorkspace.files, path)) {
+    return false;
+  }
+  if (!activeWorkspace.openFiles.includes(path)) {
+    activeWorkspace.openFiles = [...activeWorkspace.openFiles, path];
+  }
+  activeWorkspace.activeFilePath = path;
+  renderFileTabs();
+  setEditorValue(currentSource());
+  persistWorkspace();
+  return true;
+}
+
+async function loadBundledImport(path) {
+  const sample = await callWorker("loadSample", { path });
+  const files = { ...activeWorkspace.files, ...sample.files };
+  const openFiles = [...activeWorkspace.openFiles];
+  if (!openFiles.includes(sample.source_path)) {
+    openFiles.push(sample.source_path);
+  }
+
+  const nextFileHandles = new Map(fileHandles);
+  for (const samplePath of Object.keys(sample.files)) {
+    nextFileHandles.delete(samplePath);
+  }
+
+  activeWorkspace = createWorkspace({
+    files,
+    entryPath: activeWorkspace.entryPath,
+    activeFilePath: sample.source_path,
+    openFiles,
+    samplePath: activeWorkspace.samplePath,
+  });
+  fileHandles = nextFileHandles;
+  renderFileTabs();
+  setEditorValue(currentSource());
+  persistWorkspace();
+  return true;
+}
+
+async function openImportPath(importPath) {
+  const workspacePath = workspacePathForImport(importPath, activeWorkspace.activeFilePath);
+  if (!workspacePath) {
+    showError(`Cannot resolve import path: ${importPath}`);
+    return;
+  }
+
+  if (ensureFileVisible(workspacePath)) {
+    return;
+  }
+
+  if (importPath.startsWith("std:")) {
+    await loadBundledImport(importPath);
+    return;
+  }
+
+  try {
+    await loadBundledImport(workspacePath);
+  } catch (_error) {
+    showError(`Import target is not available in the current workspace: ${workspacePath}`);
+  }
+}
+
 function flashButtonLabel(button, label, duration = 1200) {
   const defaultLabel = button.dataset.defaultLabel || button.textContent;
   button.dataset.defaultLabel = defaultLabel;
@@ -872,6 +995,113 @@ function promptForFileName(defaultName = "untitled.dice") {
   return normalizeFileName(proposedName);
 }
 
+function sourceIndexFromPosition(source, position) {
+  const lines = source.split("\n");
+  let index = 0;
+  for (let row = 0; row < position.row; row += 1) {
+    index += (lines[row] ?? "").length + 1;
+  }
+  return index + position.column;
+}
+
+function positionFromSourceIndex(source, index) {
+  const clampedIndex = Math.max(0, Math.min(index, source.length));
+  const prefix = source.slice(0, clampedIndex);
+  const lines = prefix.split("\n");
+  return {
+    row: Math.max(lines.length - 1, 0),
+    column: lines[lines.length - 1]?.length ?? 0,
+  };
+}
+
+async function fetchEditorCompletions(position) {
+  const source = currentEditorValue();
+  const cursor = sourceIndexFromPosition(source, position);
+  const payload = await callWorker("complete", {
+    source,
+    cursor,
+    files: activeWorkspace.files,
+    settings: {
+      source_path: activeWorkspace.activeFilePath,
+    },
+  });
+  return { payload, source };
+}
+
+function installAceAutocompletion() {
+  const aceLanguageTools = window.ace.require("ace/ext/language_tools");
+  const AceRange = window.ace.require("ace/range").Range;
+
+  const diceCompleter = {
+    identifierRegexps: [/[A-Za-z0-9_./:-]/],
+    getCompletions(editor, _session, position, _prefix, callback) {
+      const requestId = ++completionRequestId;
+      void fetchEditorCompletions(position)
+        .then(({ payload, source }) => {
+          if (requestId !== completionRequestId) {
+            callback(null, []);
+            return;
+          }
+
+          const completions = payload.options.map((option, index) => ({
+            caption: option.label,
+            value: option.label,
+            meta: option.type ?? "symbol",
+            score: 1000 - index,
+            docHTML: option.detail ? `<code>${option.detail}</code>` : "",
+            completer: diceCompleter,
+            range: new AceRange(
+              positionFromSourceIndex(source, payload.from).row,
+              positionFromSourceIndex(source, payload.from).column,
+              positionFromSourceIndex(source, payload.to).row,
+              positionFromSourceIndex(source, payload.to).column,
+            ),
+          }));
+          callback(null, completions);
+        })
+        .catch(() => {
+          callback(null, []);
+        });
+    },
+  };
+
+  aceLanguageTools.setCompleters([diceCompleter]);
+  aceEditor.setOptions({
+    enableBasicAutocompletion: true,
+    enableLiveAutocompletion: true,
+  });
+}
+
+function installAceImportLinks() {
+  const syncLinkCursor = (event) => {
+    const position = event.getDocumentPosition?.();
+    if (!position) {
+      aceEditor.container.style.cursor = "";
+      return;
+    }
+    const link = importLinkAtPosition(currentEditorValue(), position.row, position.column);
+    aceEditor.container.style.cursor = link ? "pointer" : "";
+  };
+
+  aceEditor.on("mousemove", syncLinkCursor);
+  aceEditor.on("mouseout", () => {
+    aceEditor.container.style.cursor = "";
+  });
+  aceEditor.on("click", (event) => {
+    const position = event.getDocumentPosition?.();
+    if (!position) {
+      return;
+    }
+    const link = importLinkAtPosition(currentEditorValue(), position.row, position.column);
+    if (!link) {
+      return;
+    }
+    event.stop?.();
+    event.preventDefault?.();
+    void openImportPath(link.importPath);
+  });
+}
+
 async function saveCurrentFile({ forcePrompt = false } = {}) {
   syncActiveFileFromEditor();
   let currentPath = activeWorkspace.activeFilePath;
@@ -936,11 +1166,20 @@ function initializeEditor() {
       wrap: true,
       highlightActiveLine: true,
     });
+    installAceAutocompletion();
+    installAceImportLinks();
     aceEditor.commands.addCommand({
       name: "runDice",
       bindKey: { win: "Ctrl-Enter", mac: "Command-Enter" },
       exec: () => {
         void evaluateSource();
+      },
+    });
+    aceEditor.commands.addCommand({
+      name: "showCompletions",
+      bindKey: { win: "Ctrl-Space", mac: "Ctrl-Space|Alt-Space" },
+      exec: (editor) => {
+        editor.execCommand("startAutocomplete");
       },
     });
     aceEditor.session.on("change", () => {
