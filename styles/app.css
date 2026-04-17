@@ -350,6 +350,14 @@ select:focus-visible,
   color: rgba(244, 236, 223, 0.32) !important;
 }
 
+#editor .ace_dice-import-path {
+  color: #8fc5ff;
+  text-decoration: underline;
+  text-decoration-color: rgba(143, 197, 255, 0.85);
+  text-underline-offset: 0.14em;
+  font-weight: 500;
+}
+
 #editor .ace_marker-layer .ace_active-line,
 #editor .ace_gutter-active-line {
   background: rgba(255, 255, 255, 0.06) !important;

@@ -54,6 +54,7 @@ let renamingFilePath = null;
 let workspaceSavePromise = null;
 let workspaceSaveQueued = false;
 let completionRequestId = 0;
+let diceAceModeRegistered = false;
 
 let activeWorkspace = loadInitialWorkspace();
 
@@ -614,6 +615,73 @@ function showError(message) {
   setResultState("error");
 }
 
+function registerDiceAceMode() {
+  if (diceAceModeRegistered || !window.ace?.define) {
+    return;
+  }
+
+  window.ace.define(
+    "ace/mode/dice_highlight_rules",
+    [
+      "require",
+      "exports",
+      "module",
+      "ace/lib/oop",
+      "ace/mode/text_highlight_rules",
+    ],
+    (require, exports) => {
+      const oop = require("ace/lib/oop");
+      const TextHighlightRules = require("ace/mode/text_highlight_rules").TextHighlightRules;
+
+      const DiceHighlightRules = function () {
+        this.$rules = {
+          start: [
+            {
+              token: ["keyword", "text", "string", "dice-import-path", "string"],
+              regex: /(\bimport\b)(\s+)(")([^"]+)(")/,
+            },
+            {
+              token: "keyword",
+              regex: /\bimport\b/,
+            },
+          ],
+        };
+      };
+
+      oop.inherits(DiceHighlightRules, TextHighlightRules);
+      exports.DiceHighlightRules = DiceHighlightRules;
+    },
+  );
+
+  window.ace.define(
+    "ace/mode/dice",
+    [
+      "require",
+      "exports",
+      "module",
+      "ace/lib/oop",
+      "ace/mode/text",
+      "ace/mode/dice_highlight_rules",
+    ],
+    (require, exports) => {
+      const oop = require("ace/lib/oop");
+      const TextMode = require("ace/mode/text").Mode;
+      const DiceHighlightRules = require("ace/mode/dice_highlight_rules").DiceHighlightRules;
+
+      const Mode = function () {
+        this.HighlightRules = DiceHighlightRules;
+        this.$behaviour = this.$defaultBehaviour;
+      };
+
+      oop.inherits(Mode, TextMode);
+      Mode.prototype.$id = "ace/mode/dice";
+      exports.Mode = Mode;
+    },
+  );
+
+  diceAceModeRegistered = true;
+}
+
 function setResultState(state) {
   resultsPanel.dataset.state = state;
 }
@@ -1154,10 +1222,11 @@ async function saveCurrentFile({ forcePrompt = false } = {}) {
 
 function initializeEditor() {
   if (window.ace) {
+    registerDiceAceMode();
     editorSurface.textContent = "";
     aceEditor = window.ace.edit(editorSurface);
     aceEditor.setTheme("ace/theme/tomorrow_night_bright");
-    aceEditor.session.setMode("ace/mode/text");
+    aceEditor.session.setMode("ace/mode/dice");
     aceEditor.session.setTabSize(2);
     aceEditor.session.setUseSoftTabs(true);
     aceEditor.setOptions({
