@@ -5,17 +5,16 @@ target_ac = [ac:10, 12, 14, 16, 18, 20]
 
 d20 + attack_bonus >= target_ac`;
 
-const STORAGE_KEY = "dice-web:last-source";
-const SNIPPETS_KEY = "dice-web:snippets";
-const EMPTY_SNIPPET = "__empty__";
+const LEGACY_SOURCE_STORAGE_KEY = "dice-web:last-source";
+const WORKSPACE_STORAGE_KEY = "dice-web:workspace";
 
 const runButton = document.querySelector("#run-button");
 const shareButton = document.querySelector("#share-button");
+const loadFileButton = document.querySelector("#load-file-button");
+const saveFileButton = document.querySelector("#save-file-button");
+const saveAsFileButton = document.querySelector("#save-as-file-button");
 const loadSampleButton = document.querySelector("#load-sample-button");
 const closeAllButton = document.querySelector("#close-all-button");
-const snippetSelect = document.querySelector("#snippet-select");
-const saveSnippetButton = document.querySelector("#save-snippet-button");
-const deleteSnippetButton = document.querySelector("#delete-snippet-button");
 const textOutput = document.querySelector("#text-output");
 const jsonOutput = document.querySelector("#json-output");
 const diagnosticPanel = document.querySelector("#diagnostic-panel");
@@ -26,6 +25,7 @@ const chartPanel = document.querySelector("#chart-panel");
 const resultsPanel = document.querySelector(".results-panel");
 const editorSurface = document.querySelector("#editor");
 const fileTabs = document.querySelector("#file-tabs");
+const fileInput = document.querySelector("#file-input");
 const sampleDialog = document.querySelector("#sample-dialog");
 const sampleDialogSelect = document.querySelector("#sample-dialog-select");
 const sampleDialogConfirm = document.querySelector("#sample-dialog-confirm");
@@ -45,11 +45,10 @@ let aceEditor = null;
 let activeResultTab = "charts";
 let editorResizeFrame = 0;
 let editorResizeObserver = null;
+let fileHandles = new Map();
+let renamingFilePath = null;
 
-let activeWorkspace = createWorkspace({
-  files: { "main.dice": loadSavedSource() },
-  entryPath: "main.dice",
-});
+let activeWorkspace = loadInitialWorkspace();
 
 const worker = new Worker(new URL("./worker.js", import.meta.url));
 const pendingRpc = new Map();
@@ -76,9 +75,15 @@ function callWorker(method, params = {}) {
   });
 }
 
-function createWorkspace({ files, entryPath, samplePath = null, activeFilePath = null }) {
-  const normalizedFiles = { ...files };
-  const openFiles = Object.keys(normalizedFiles).sort((left, right) => {
+function createWorkspace({ files, entryPath, samplePath = null, activeFilePath = null, openFiles = null }) {
+  const normalizedFiles = Object.fromEntries(
+    Object.entries(files ?? {}).map(([path, source]) => [path, String(source ?? "")]),
+  );
+  if (!Object.hasOwn(normalizedFiles, entryPath)) {
+    normalizedFiles[entryPath] = "";
+  }
+
+  const fallbackOpenFiles = Object.keys(normalizedFiles).sort((left, right) => {
     if (left === entryPath) {
       return -1;
     }
@@ -87,23 +92,72 @@ function createWorkspace({ files, entryPath, samplePath = null, activeFilePath =
     }
     return left.localeCompare(right);
   });
+  const nextOpenFiles = Array.isArray(openFiles)
+    ? [...new Set(openFiles.filter((path) => Object.hasOwn(normalizedFiles, path)))]
+    : [];
+  if (!nextOpenFiles.includes(entryPath)) {
+    nextOpenFiles.unshift(entryPath);
+  }
+
+  const resolvedActiveFilePath =
+    activeFilePath && Object.hasOwn(normalizedFiles, activeFilePath) ? activeFilePath : entryPath;
+  if (!nextOpenFiles.includes(resolvedActiveFilePath)) {
+    nextOpenFiles.push(resolvedActiveFilePath);
+  }
+
   return {
     samplePath,
     files: normalizedFiles,
     entryPath,
-    openFiles,
-    activeFilePath: activeFilePath ?? entryPath,
+    openFiles: nextOpenFiles.length > 0 ? nextOpenFiles : fallbackOpenFiles,
+    activeFilePath: resolvedActiveFilePath,
   };
 }
 
-function loadSavedSource() {
+function loadLegacySavedSource() {
+  const saved = window.localStorage.getItem(LEGACY_SOURCE_STORAGE_KEY);
+  return saved || DEFAULT_SOURCE;
+}
+
+function loadInitialWorkspace() {
   const url = new URL(window.location.href);
   const codeParam = url.searchParams.get("code");
-  if (codeParam) {
-    return codeParam;
+  if (codeParam !== null) {
+    return createWorkspace({
+      files: { "main.dice": codeParam },
+      entryPath: "main.dice",
+    });
   }
-  const saved = window.localStorage.getItem(STORAGE_KEY);
-  return saved || DEFAULT_SOURCE;
+
+  try {
+    const rawWorkspace = window.localStorage.getItem(WORKSPACE_STORAGE_KEY);
+    if (rawWorkspace) {
+      const parsedWorkspace = JSON.parse(rawWorkspace);
+      if (
+        parsedWorkspace &&
+        typeof parsedWorkspace === "object" &&
+        parsedWorkspace.files &&
+        typeof parsedWorkspace.files === "object" &&
+        typeof parsedWorkspace.entryPath === "string"
+      ) {
+        return createWorkspace({
+          files: parsedWorkspace.files,
+          entryPath: parsedWorkspace.entryPath,
+          samplePath: typeof parsedWorkspace.samplePath === "string" ? parsedWorkspace.samplePath : null,
+          activeFilePath:
+            typeof parsedWorkspace.activeFilePath === "string" ? parsedWorkspace.activeFilePath : null,
+          openFiles: Array.isArray(parsedWorkspace.openFiles) ? parsedWorkspace.openFiles : null,
+        });
+      }
+    }
+  } catch (_error) {
+    // Ignore corrupt browser state and fall back to the legacy single-file payload.
+  }
+
+  return createWorkspace({
+    files: { "main.dice": loadLegacySavedSource() },
+    entryPath: "main.dice",
+  });
 }
 
 function currentEditorValue() {
@@ -170,7 +224,17 @@ function entrySource() {
 }
 
 function persistWorkspace() {
-  window.localStorage.setItem(STORAGE_KEY, entrySource());
+  window.localStorage.setItem(
+    WORKSPACE_STORAGE_KEY,
+    JSON.stringify({
+      samplePath: activeWorkspace.samplePath,
+      files: activeWorkspace.files,
+      entryPath: activeWorkspace.entryPath,
+      openFiles: activeWorkspace.openFiles,
+      activeFilePath: activeWorkspace.activeFilePath,
+    }),
+  );
+  window.localStorage.setItem(LEGACY_SOURCE_STORAGE_KEY, entrySource());
   saveUrlState();
 }
 
@@ -186,6 +250,7 @@ function resetWorkspace() {
     files: { "main.dice": source },
     entryPath: "main.dice",
   });
+  fileHandles = new Map();
   renderFileTabs();
   setEditorValue(currentSource());
   persistWorkspace();
@@ -198,6 +263,98 @@ function refreshWorkspaceActions() {
 function basename(path) {
   const parts = path.split("/");
   return parts[parts.length - 1];
+}
+
+function dirname(path) {
+  const parts = path.split("/");
+  parts.pop();
+  return parts.join("/");
+}
+
+function splitExtension(path) {
+  const dotIndex = path.lastIndexOf(".");
+  if (dotIndex <= 0) {
+    return { stem: path, extension: "" };
+  }
+  return {
+    stem: path.slice(0, dotIndex),
+    extension: path.slice(dotIndex),
+  };
+}
+
+function createUniquePath(path, takenPaths = new Set(Object.keys(activeWorkspace.files))) {
+  if (!takenPaths.has(path)) {
+    return path;
+  }
+
+  const { stem, extension } = splitExtension(path);
+  let index = 2;
+  let candidate = `${stem}-${index}${extension}`;
+  while (takenPaths.has(candidate)) {
+    index += 1;
+    candidate = `${stem}-${index}${extension}`;
+  }
+  return candidate;
+}
+
+function preferredEntryPath(paths) {
+  if (paths.includes("main.dice")) {
+    return "main.dice";
+  }
+  return paths[0] ?? "main.dice";
+}
+
+function isUnnamedPath(path) {
+  return /^untitled(?:-\d+)?(?:\.dice)?$/i.test(basename(path));
+}
+
+function normalizeFileName(name, { preserveDirectory = false, basePath = "" } = {}) {
+  if (typeof name !== "string") {
+    return null;
+  }
+
+  const trimmed = name.trim();
+  if (!trimmed) {
+    return null;
+  }
+
+  const normalized = trimmed.replace(/\\/g, "/").replace(/^\.\/+/, "");
+  const pieces = normalized
+    .split("/")
+    .map((segment) => segment.trim())
+    .filter(Boolean);
+  if (!pieces.length) {
+    return null;
+  }
+
+  let filePath = pieces.join("/");
+  if (!basename(filePath).includes(".")) {
+    filePath += ".dice";
+  }
+
+  if (preserveDirectory) {
+    const parentPath = dirname(basePath);
+    if (pieces.length === 1 && parentPath) {
+      return `${parentPath}/${basename(filePath)}`;
+    }
+  }
+
+  return filePath;
+}
+
+function flashButtonLabel(button, label, duration = 1200) {
+  const defaultLabel = button.dataset.defaultLabel || button.textContent;
+  button.dataset.defaultLabel = defaultLabel;
+  button.textContent = label;
+  window.setTimeout(() => {
+    button.textContent = button.dataset.defaultLabel || defaultLabel;
+  }, duration);
+}
+
+function showError(message) {
+  diagnosticPanel.hidden = false;
+  diagnosticOutput.textContent = message;
+  setResultState("error");
 }
 
 function setResultState(state) {
@@ -222,40 +379,6 @@ function saveUrlState() {
   saveUrlTimer = window.setTimeout(() => {
     window.history.replaceState({}, "", buildShareUrl());
   }, 250);
-}
-
-function loadSnippets() {
-  try {
-    return JSON.parse(window.localStorage.getItem(SNIPPETS_KEY) || "{}");
-  } catch (_error) {
-    return {};
-  }
-}
-
-function saveSnippets(snippets) {
-  window.localStorage.setItem(SNIPPETS_KEY, JSON.stringify(snippets));
-}
-
-function refreshSnippetSelect() {
-  const snippets = loadSnippets();
-  const fragment = document.createDocumentFragment();
-
-  const scratch = document.createElement("option");
-  scratch.value = EMPTY_SNIPPET;
-  scratch.textContent = "Scratchpad";
-  fragment.appendChild(scratch);
-
-  for (const name of Object.keys(snippets).sort()) {
-    const option = document.createElement("option");
-    option.value = name;
-    option.textContent = name;
-    fragment.appendChild(option);
-  }
-
-  snippetSelect.replaceChildren(fragment);
-  if (!snippetSelect.value) {
-    snippetSelect.value = EMPTY_SNIPPET;
-  }
 }
 
 function populateSampleDialog() {
@@ -291,15 +414,48 @@ function renderFileTabs() {
     const tab = document.createElement("div");
     tab.className = path === activeWorkspace.activeFilePath ? "file-tab-shell is-active" : "file-tab-shell";
 
-    const button = document.createElement("button");
-    button.type = "button";
-    button.className = path === activeWorkspace.activeFilePath ? "file-tab is-active" : "file-tab";
-    button.textContent = basename(path);
-    button.title = path;
-    button.addEventListener("click", () => {
-      setActiveFile(path);
-    });
-    tab.appendChild(button);
+    if (path === renamingFilePath) {
+      const input = document.createElement("input");
+      input.type = "text";
+      input.className = "file-tab-input";
+      input.value = path;
+      input.title = path;
+      input.setAttribute("aria-label", `Rename ${basename(path)}`);
+      input.addEventListener("click", (event) => {
+        event.stopPropagation();
+      });
+      input.addEventListener("keydown", (event) => {
+        if (event.key === "Enter") {
+          event.preventDefault();
+          finishRenamingFile(path, input.value);
+          return;
+        }
+        if (event.key === "Escape") {
+          event.preventDefault();
+          cancelRenamingFile();
+        }
+      });
+      input.addEventListener("blur", () => {
+        if (renamingFilePath === path) {
+          finishRenamingFile(path, input.value);
+        }
+      });
+      tab.appendChild(input);
+    } else {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = path === activeWorkspace.activeFilePath ? "file-tab is-active" : "file-tab";
+      button.textContent = basename(path);
+      button.title = path;
+      button.addEventListener("click", () => {
+        setActiveFile(path);
+      });
+      button.addEventListener("dblclick", (event) => {
+        event.preventDefault();
+        startRenamingFile(path);
+      });
+      tab.appendChild(button);
+    }
 
     if (canCloseTabs) {
       const closeButton = document.createElement("button");
@@ -317,7 +473,24 @@ function renderFileTabs() {
 
     fragment.appendChild(tab);
   }
+
+  const createButton = document.createElement("button");
+  createButton.type = "button";
+  createButton.className = "file-tab-create";
+  createButton.textContent = "+";
+  createButton.title = "Create a new tab";
+  createButton.setAttribute("aria-label", "Create a new tab");
+  createButton.addEventListener("click", () => {
+    createNewTab();
+  });
+  fragment.appendChild(createButton);
+
   fileTabs.replaceChildren(fragment);
+  if (renamingFilePath) {
+    const activeInput = fileTabs.querySelector(".file-tab-input");
+    activeInput?.focus();
+    activeInput?.select();
+  }
   refreshWorkspaceActions();
 }
 
@@ -329,6 +502,7 @@ function setActiveFile(path) {
   activeWorkspace.activeFilePath = path;
   renderFileTabs();
   setEditorValue(currentSource());
+  persistWorkspace();
 }
 
 function closeFile(path, index) {
@@ -350,11 +524,268 @@ function closeFile(path, index) {
   }
 
   delete activeWorkspace.files[path];
+  fileHandles.delete(path);
   activeWorkspace.openFiles = nextOpenFiles;
 
   renderFileTabs();
   setEditorValue(currentSource());
   persistWorkspace();
+}
+
+function createNewTab() {
+  syncActiveFileFromEditor();
+  const nextPath = createUniquePath("untitled.dice");
+  activeWorkspace.files[nextPath] = "";
+  activeWorkspace.openFiles = [...activeWorkspace.openFiles, nextPath];
+  activeWorkspace.activeFilePath = nextPath;
+  activeWorkspace.samplePath = null;
+  renamingFilePath = nextPath;
+  renderFileTabs();
+  setEditorValue("");
+  persistWorkspace();
+}
+
+function renameWorkspaceFile(currentPath, nextPath, { preserveHandle = true } = {}) {
+  if (currentPath === nextPath) {
+    return currentPath;
+  }
+
+  const takenPaths = new Set(Object.keys(activeWorkspace.files));
+  takenPaths.delete(currentPath);
+  const resolvedPath = createUniquePath(nextPath, takenPaths);
+  activeWorkspace.files[resolvedPath] = activeWorkspace.files[currentPath];
+  delete activeWorkspace.files[currentPath];
+  activeWorkspace.openFiles = activeWorkspace.openFiles.map((path) => (path === currentPath ? resolvedPath : path));
+  if (activeWorkspace.entryPath === currentPath) {
+    activeWorkspace.entryPath = resolvedPath;
+  }
+  if (activeWorkspace.activeFilePath === currentPath) {
+    activeWorkspace.activeFilePath = resolvedPath;
+  }
+
+  const handle = fileHandles.get(currentPath);
+  if (handle && preserveHandle) {
+    fileHandles.delete(currentPath);
+    fileHandles.set(resolvedPath, handle);
+  } else {
+    fileHandles.delete(currentPath);
+    fileHandles.delete(resolvedPath);
+  }
+
+  activeWorkspace.samplePath = null;
+  renderFileTabs();
+  persistWorkspace();
+  return resolvedPath;
+}
+
+function startRenamingFile(path) {
+  syncActiveFileFromEditor();
+  renamingFilePath = path;
+  activeWorkspace.activeFilePath = path;
+  renderFileTabs();
+  setEditorValue(currentSource());
+}
+
+function cancelRenamingFile() {
+  if (!renamingFilePath) {
+    return;
+  }
+  renamingFilePath = null;
+  renderFileTabs();
+}
+
+function finishRenamingFile(path, rawName) {
+  if (renamingFilePath !== path) {
+    return;
+  }
+
+  renamingFilePath = null;
+  const nextPath = normalizeFileName(rawName, {
+    preserveDirectory: true,
+    basePath: path,
+  });
+  if (!nextPath) {
+    renderFileTabs();
+    return;
+  }
+
+  renameWorkspaceFile(path, nextPath, { preserveHandle: false });
+}
+
+function loadWorkspaceEntries(entries, handles = new Map()) {
+  if (!entries.length) {
+    return;
+  }
+
+  syncActiveFileFromEditor();
+
+  const files = { ...activeWorkspace.files };
+  const openFiles = [...activeWorkspace.openFiles];
+  const mergedHandles = new Map(fileHandles);
+
+  for (const { path, source } of entries) {
+    files[path] = source;
+    if (!openFiles.includes(path)) {
+      openFiles.push(path);
+    }
+  }
+  for (const [path, handle] of handles.entries()) {
+    mergedHandles.set(path, handle);
+  }
+
+  const activeFilePath = entries[0].path;
+  activeWorkspace = createWorkspace({
+    files,
+    entryPath: activeWorkspace.entryPath,
+    activeFilePath,
+    openFiles,
+    samplePath: null,
+  });
+  fileHandles = mergedHandles;
+  renderFileTabs();
+  setEditorValue(currentSource());
+  persistWorkspace();
+}
+
+async function loadFilesFromHandles(handles) {
+  const nextHandles = new Map();
+  const takenPaths = new Set(Object.keys(activeWorkspace.files));
+  const entries = [];
+
+  for (const handle of handles) {
+    const file = await handle.getFile();
+    const path = createUniquePath(file.name, takenPaths);
+    takenPaths.add(path);
+    entries.push({
+      path,
+      source: await file.text(),
+    });
+    nextHandles.set(path, handle);
+  }
+
+  loadWorkspaceEntries(entries, nextHandles);
+}
+
+async function loadFilesFromInputList(files) {
+  const takenPaths = new Set(Object.keys(activeWorkspace.files));
+  const entries = [];
+
+  for (const file of files) {
+    const path = createUniquePath(file.webkitRelativePath || file.name, takenPaths);
+    takenPaths.add(path);
+    entries.push({
+      path,
+      source: await file.text(),
+    });
+  }
+
+  loadWorkspaceEntries(entries);
+}
+
+async function loadFiles() {
+  try {
+    if (typeof window.showOpenFilePicker === "function") {
+      const handles = await window.showOpenFilePicker({
+        multiple: true,
+        types: [
+          {
+            description: "Dice files",
+            accept: {
+              "text/plain": [".dice", ".txt"],
+            },
+          },
+        ],
+      });
+      if (!handles.length) {
+        return;
+      }
+      await loadFilesFromHandles(handles);
+      await evaluateSource();
+      flashButtonLabel(loadFileButton, "Loaded");
+      return;
+    }
+
+    fileInput.value = "";
+    fileInput.click();
+  } catch (error) {
+    if (error?.name === "AbortError") {
+      return;
+    }
+    showError(error.message);
+  }
+}
+
+async function writeSourceToHandle(handle, source) {
+  const writable = await handle.createWritable();
+  await writable.write(source);
+  await writable.close();
+}
+
+function downloadSource(path, source) {
+  const blob = new Blob([source], { type: "text/plain;charset=utf-8" });
+  const objectUrl = window.URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = objectUrl;
+  anchor.download = basename(path);
+  anchor.click();
+  window.setTimeout(() => {
+    window.URL.revokeObjectURL(objectUrl);
+  }, 0);
+}
+
+function promptForFileName(defaultName = "untitled.dice") {
+  const proposedName = window.prompt("File name", defaultName);
+  return normalizeFileName(proposedName);
+}
+
+async function saveCurrentFile({ forcePrompt = false } = {}) {
+  syncActiveFileFromEditor();
+  let currentPath = activeWorkspace.activeFilePath;
+  const source = currentSource();
+
+  try {
+    const existingHandle = fileHandles.get(currentPath);
+    if (existingHandle && !forcePrompt) {
+      await writeSourceToHandle(existingHandle, source);
+      flashButtonLabel(saveFileButton, "Saved");
+      return;
+    }
+
+    if (typeof window.showSaveFilePicker === "function") {
+      const handle = await window.showSaveFilePicker({
+        suggestedName: basename(currentPath),
+        types: [
+          {
+            description: "Dice files",
+            accept: {
+              "text/plain": [".dice", ".txt"],
+            },
+          },
+        ],
+      });
+      await writeSourceToHandle(handle, source);
+      const resolvedPath = renameWorkspaceFile(currentPath, handle.name, { preserveHandle: true });
+      fileHandles.set(resolvedPath, handle);
+      flashButtonLabel(forcePrompt ? saveAsFileButton : saveFileButton, "Saved");
+      return;
+    }
+
+    if (forcePrompt || isUnnamedPath(currentPath)) {
+      const promptedPath = promptForFileName(basename(currentPath));
+      if (!promptedPath) {
+        return;
+      }
+      currentPath = renameWorkspaceFile(currentPath, promptedPath, { preserveHandle: false });
+    }
+
+    downloadSource(currentPath, source);
+    flashButtonLabel(forcePrompt ? saveAsFileButton : saveFileButton, "Downloaded");
+  } catch (error) {
+    if (error?.name === "AbortError") {
+      return;
+    }
+    showError(error.message);
+  }
 }
 
 function initializeEditor() {
@@ -1330,11 +1761,27 @@ async function evaluateSource() {
 
 async function loadSamplePath(path) {
   const sample = await callWorker("loadSample", { path });
+  syncActiveFileFromEditor();
+
+  const files = { ...activeWorkspace.files, ...sample.files };
+  const openFiles = [...activeWorkspace.openFiles];
+  if (!openFiles.includes(sample.source_path)) {
+    openFiles.push(sample.source_path);
+  }
+
+  const nextFileHandles = new Map(fileHandles);
+  for (const samplePath of Object.keys(sample.files)) {
+    nextFileHandles.delete(samplePath);
+  }
+
   activeWorkspace = createWorkspace({
-    files: sample.files,
+    files,
     entryPath: sample.source_path,
+    activeFilePath: sample.source_path,
+    openFiles,
     samplePath: path,
   });
+  fileHandles = nextFileHandles;
   renderFileTabs();
   setEditorValue(currentSource());
   persistWorkspace();
@@ -1374,6 +1821,18 @@ shareButton.addEventListener("click", () => {
   void copyShareUrl();
 });
 
+loadFileButton.addEventListener("click", () => {
+  void loadFiles();
+});
+
+saveFileButton.addEventListener("click", () => {
+  void saveCurrentFile();
+});
+
+saveAsFileButton.addEventListener("click", () => {
+  void saveCurrentFile({ forcePrompt: true });
+});
+
 loadSampleButton.addEventListener("click", () => {
   openSampleDialog();
 });
@@ -1410,51 +1869,22 @@ resultTabs.forEach((button) => {
   });
 });
 
-saveSnippetButton.addEventListener("click", () => {
-  syncActiveFileFromEditor();
-  const name = window.prompt("Snippet name");
-  if (!name) {
+fileInput.addEventListener("change", async (event) => {
+  const files = Array.from(event.target.files ?? []);
+  if (!files.length) {
     return;
   }
-  const snippets = loadSnippets();
-  snippets[name] = currentSource();
-  saveSnippets(snippets);
-  refreshSnippetSelect();
-  snippetSelect.value = name;
-});
 
-deleteSnippetButton.addEventListener("click", () => {
-  const selected = snippetSelect.value;
-  if (!selected || selected === EMPTY_SNIPPET) {
-    return;
+  try {
+    await loadFilesFromInputList(files);
+    await evaluateSource();
+    flashButtonLabel(loadFileButton, "Loaded");
+  } catch (error) {
+    showError(error.message);
+  } finally {
+    fileInput.value = "";
   }
-  const snippets = loadSnippets();
-  delete snippets[selected];
-  saveSnippets(snippets);
-  refreshSnippetSelect();
-  snippetSelect.value = EMPTY_SNIPPET;
 });
-
-snippetSelect.addEventListener("change", () => {
-  const selected = snippetSelect.value;
-  if (selected === EMPTY_SNIPPET) {
-    return;
-  }
-  const snippets = loadSnippets();
-  const snippet = snippets[selected];
-  if (!snippet) {
-    return;
-  }
-  activeWorkspace = createWorkspace({
-    files: { "main.dice": snippet },
-    entryPath: "main.dice",
-  });
-  renderFileTabs();
-  setEditorValue(currentSource());
-  persistWorkspace();
-});
-
-refreshSnippetSelect();
 setActiveResultTab("charts");
 textOutput.textContent = "";
 jsonOutput.textContent = "";

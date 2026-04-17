@@ -30,14 +30,11 @@
         <section class="editor-panel">
           <div class="toolbar-row">
             <div class="toolbar-group">
+              <button id="load-file-button" class="button">Load Files</button>
+              <button id="save-file-button" class="button">Save File</button>
+              <button id="save-as-file-button" class="button">Save As</button>
               <button id="load-sample-button" class="button">Load Sample</button>
               <button id="close-all-button" class="button">Close All</button>
-              <label class="compact-select">
-                <span>Snippets</span>
-                <select id="snippet-select"></select>
-              </label>
-              <button id="save-snippet-button" class="button">Save</button>
-              <button id="delete-snippet-button" class="button button-danger">Delete</button>
             </div>
             <div class="toolbar-group">
               <button id="run-button" class="button button-primary">Run</button>
@@ -46,6 +43,7 @@
           </div>
 
           <div id="file-tabs" class="file-tabs" aria-label="Open files"></div>
+          <input id="file-input" type="file" accept=".dice,.txt,text/plain" multiple hidden />
 
           <div id="editor" class="editor-surface" aria-label="dice editor"></div>
         </section>
