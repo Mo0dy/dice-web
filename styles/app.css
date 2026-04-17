@@ -88,6 +88,19 @@ pre {
   font-size: 0.82rem;
 }
 
+.topbar-link {
+  color: var(--accent);
+  font-size: 0.84rem;
+  font-weight: 600;
+  text-decoration: none;
+  padding: 0.15rem 0 0.2rem;
+}
+
+.topbar-link:hover {
+  color: var(--accent-strong);
+  text-decoration: underline;
+}
+
 .editor-panel,
 .results-panel,
 .subpanel,
@@ -707,6 +720,10 @@ select:focus-visible,
     align-items: flex-start;
     flex-direction: column;
     gap: 0.25rem;
+  }
+
+  .topbar-link {
+    margin-left: 0;
   }
 
   .toolbar-row {
