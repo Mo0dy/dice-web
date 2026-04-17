@@ -1,0 +1,14 @@
+{
+  "name": "dice-web",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test:frontend": "npm run test:frontend:unit && npm run test:frontend:e2e",
+    "test:frontend:unit": "vitest run tests/frontend/unit",
+    "test:frontend:e2e": "playwright test"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.53.0",
+    "vitest": "^3.2.4"
+  }
+}
