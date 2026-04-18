@@ -87,7 +87,7 @@ def render_chart(chart_spec, *, render_config=None, path=None, output_format="js
     _normalize_output_format(output_format)
     render_config = render_config if render_config is not None else RenderConfig()
     probability_mode = render_config.effective_probability_mode(default="percent")
-    plan = build_chart_plan(chart_spec)
+    plan = build_chart_plan(chart_spec, render_config=render_config)
     rendered, output_path = _render_payload_text(
         {
             "type": "chart",
@@ -105,7 +105,7 @@ def render_report(report_spec, *, render_config=None, path=None, output_format="
     _normalize_output_format(output_format)
     render_config = render_config if render_config is not None else RenderConfig()
     probability_mode = render_config.effective_probability_mode(default="percent")
-    plan = build_report_plan(report_spec)
+    plan = build_report_plan(report_spec, render_config=render_config)
     rendered, output_path = _render_payload_text(
         {
             "type": "report",

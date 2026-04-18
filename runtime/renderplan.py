@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from diceengine import (
     ChartSpec,
     PanelWidthClass,
+    RenderConfig,
     ReportBlock,
     ReportSpec,
     TupleValue,
@@ -61,13 +62,6 @@ def _ordered_values(values):
         return tuple(values)
 
 
-def _looks_like_damage_axis(label):
-    if not isinstance(label, str):
-        return False
-    normalized = label.strip().lower()
-    return normalized == "dmg" or "damage" in normalized
-
-
 def _central_probability_window(distrib):
     outcomes = _ordered_values(distrib.keys())
     if len(outcomes) < 25 or not all(isinstance(outcome, (int, float)) for outcome in outcomes):
@@ -95,13 +89,15 @@ def _central_probability_window(distrib):
     return kept, "Showing central 99.9% of mass; tails omitted."
 
 
-def _dominant_zero_probability(distrib, x_label):
-    if not _looks_like_damage_axis(x_label):
+def _dominant_zero_probability(distrib, render_config):
+    if render_config is not None and not render_config.omit_dominant_zero_outcome:
         return None
     if 0 not in distrib.keys():
         return None
+    if not all(isinstance(outcome, (int, float)) for outcome in distrib.keys()):
+        return None
     other_outcomes = [outcome for outcome in distrib.keys() if outcome != 0]
-    if not other_outcomes:
+    if len(other_outcomes) < 2:
         return None
     zero_probability = distrib[0]
     highest_other = max(distrib[outcome] for outcome in other_outcomes)
@@ -110,7 +106,7 @@ def _dominant_zero_probability(distrib, x_label):
     return zero_probability
 
 
-def _build_distribution_hints(distrib, x_label, *, clip_tails):
+def _build_distribution_hints(distrib, x_label, *, clip_tails, render_config=None):
     hints = []
     if clip_tails:
         visible_outcomes, note = _central_probability_window(distrib)
@@ -125,25 +121,32 @@ def _build_distribution_hints(distrib, x_label, *, clip_tails):
                     "tail_clip_mass": _TAIL_CLIP_MASS,
                 }
             )
-    zero_probability = _dominant_zero_probability(distrib, x_label)
+    zero_probability = _dominant_zero_probability(distrib, render_config)
     if zero_probability is not None:
+        if isinstance(x_label, str) and x_label.strip():
+            note = "0 {} omitted from scale: {:.0f}% at zero.".format(
+                x_label.strip(),
+                zero_probability * 100,
+            )
+        else:
+            note = "0 omitted from scale: {:.0f}% at zero.".format(zero_probability * 100)
         hints.append(
             {
                 "kind": "omit_outcome",
                 "scope": "x_axis",
                 "outcome": 0,
-                "reason": "dominant_damage_zero",
+                "reason": "dominant_zero",
                 "probability": zero_probability,
-                "note": "0 dmg omitted from scale: {:.0f}% miss.".format(zero_probability * 100),
+                "note": note,
             }
         )
     return tuple(hints)
 
 
-def _build_compare_unswept_hints(results, x_label):
+def _build_compare_unswept_hints(results, x_label, render_config=None):
     zero_probabilities = {}
     for label, result in results:
-        zero_probability = _dominant_zero_probability(result.only_distribution(), x_label)
+        zero_probability = _dominant_zero_probability(result.only_distribution(), render_config)
         if zero_probability is not None:
             zero_probabilities[label] = zero_probability
     if not zero_probabilities:
@@ -153,8 +156,8 @@ def _build_compare_unswept_hints(results, x_label):
             "kind": "omit_outcome",
             "scope": "x_axis",
             "outcome": 0,
-            "reason": "dominant_damage_zero",
-            "note": "0 dmg omitted from x-axis.",
+            "reason": "dominant_zero",
+            "note": "0 omitted from x-axis.",
         }
     ]
     for label, probability in zero_probabilities.items():
@@ -162,9 +165,9 @@ def _build_compare_unswept_hints(results, x_label):
             {
                 "kind": "series_label_suffix",
                 "label": label,
-                "reason": "dominant_damage_zero",
+                "reason": "dominant_zero",
                 "probability": probability,
-                "suffix": " ({:.0f}% miss)".format(probability * 100),
+                "suffix": " ({:.0f}% at zero)".format(probability * 100),
             }
         )
     return tuple(hints)
@@ -187,9 +190,10 @@ def _validate_series_entries(entries):
     return tuple(normalized)
 
 
-def build_chart_plan(chart_spec):
+def build_chart_plan(chart_spec, render_config=None):
     if not isinstance(chart_spec, ChartSpec):
         raise Exception("expected a chart spec")
+    render_config = render_config if render_config is not None else RenderConfig()
 
     intent = chart_spec.intent
     payload = chart_spec.payload
@@ -216,6 +220,7 @@ def build_chart_plan(chart_spec):
                     result.only_distribution(),
                     chart_spec.x_label,
                     clip_tails=True,
+                    render_config=render_config,
                 )
         elif len(result.axes) == 1:
             if _all_scalar(result):
@@ -253,7 +258,7 @@ def build_chart_plan(chart_spec):
                 plan_kind = "compare_unswept"
                 if len(results) > 3:
                     width_class = PanelWidthClass.WIDE
-                hints = _build_compare_unswept_hints(results, chart_spec.x_label)
+                hints = _build_compare_unswept_hints(results, chart_spec.x_label, render_config=render_config)
             elif all(len(result.axes) == 1 and _all_scalar(result) for _, result in results):
                 plan_kind = "compare_scalar"
             else:
@@ -274,10 +279,11 @@ def build_chart_plan(chart_spec):
     raise Exception("unknown chart intent {}".format(intent))
 
 
-def build_report_plan(report_spec):
+def build_report_plan(report_spec, render_config=None):
     if not isinstance(report_spec, ReportSpec):
         raise Exception("expected a report spec")
-    hero = build_chart_plan(report_spec.hero) if report_spec.hero is not None else None
+    render_config = render_config if render_config is not None else RenderConfig()
+    hero = build_chart_plan(report_spec.hero, render_config=render_config) if report_spec.hero is not None else None
     rows = []
     pending_narrow = []
     notes = []
@@ -296,10 +302,10 @@ def build_report_plan(report_spec):
             continue
         if block.kind == "row":
             flush_pending()
-            rows.append(tuple(build_chart_plan(chart) for chart in block.value))
+            rows.append(tuple(build_chart_plan(chart, render_config=render_config) for chart in block.value))
             continue
         if block.kind == "panel":
-            plan = build_chart_plan(block.value)
+            plan = build_chart_plan(block.value, render_config=render_config)
             if plan.width_class == PanelWidthClass.WIDE:
                 flush_pending()
                 rows.append((plan,))

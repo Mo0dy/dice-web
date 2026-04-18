@@ -71,6 +71,66 @@ test("loads the first basic example by default for a fresh session", async ({ pa
   await expect(page.getByRole("button", { name: "main.dice", exact: true })).toHaveCount(0);
 });
 
+test("renders direct-result fallback charts without requiring r_auto", async ({ page }) => {
+  await openApp(page, {
+    responses: {
+      evaluate: {
+        ok: true,
+        result: {
+          ok: true,
+          text: "Rendered fallback chart",
+          result: {
+            type: "distributions",
+            axes: [],
+            cells: [
+              {
+                coordinates: [],
+                distribution: [
+                  { outcome: 0, probability: 45 },
+                  { outcome: 6, probability: 1.5 },
+                  { outcome: 7, probability: 3 },
+                ],
+              },
+            ],
+          },
+          reports: [],
+          render: {
+            kind: "unswept_distribution",
+            width_class: "narrow",
+            x_label: null,
+            y_label: null,
+            title: null,
+            hints: [
+              {
+                kind: "omit_outcome",
+                outcome: 0,
+                note: "0 omitted from scale: 45% at zero.",
+              },
+            ],
+            payload: {
+              type: "distributions",
+              axes: [],
+              cells: [
+                {
+                  coordinates: [],
+                  distribution: [
+                    { outcome: 0, probability: 45 },
+                    { outcome: 6, probability: 1.5 },
+                    { outcome: 7, probability: 3 },
+                  ],
+                },
+              ],
+            },
+          },
+        },
+      },
+    },
+  });
+
+  await expect(page.locator("#chart-output .plot-frame svg")).toHaveCount(1);
+  await expect(page.locator("#chart-output")).toContainText("0 omitted from scale: 45% at zero.");
+});
+
 test("does not show browser-side distribution display controls", async ({ page }) => {
   await openApp(page);
 

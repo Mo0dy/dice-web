@@ -126,7 +126,14 @@ class Interpreter:
         raise DiceRuntimeError("internal error: no visit_{} method".format(type(node).__name__))
 
     def interpret(self):
-        return self.evaluate(self.ast)
+        result = self.evaluate(self.ast)
+        if isinstance(result, ChartSpec):
+            self.executor.append_chart(result)
+            result = None
+        auto_rendered = self.executor.flush_pending_report_at_end()
+        if result is None and auto_rendered is not None:
+            return auto_rendered
+        return result
 
     def evaluate(self, ast):
         self.collect_function_definitions(ast)

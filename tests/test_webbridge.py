@@ -29,22 +29,29 @@ class WebBridgeTest(unittest.TestCase):
         self.assertIn("divide by zero", payload["error"]["message"])
         self.assertIsNotNone(payload["error"]["span"])
 
-    def test_render_payload_builds_line_chart_data(self):
+    def test_evaluate_includes_runtime_scalar_sweep_render_payload(self):
         payload = webbridge.evaluate("[ac:10, 11, 12] + 0")
         self.assertTrue(payload["ok"])
-        render = webbridge.render_payload(payload, settings={"probability_mode": "percent"})
-        self.assertEqual(render["kind"], "line")
-        self.assertEqual(render["categories"], [10, 11, 12])
-        self.assertEqual(render["series"][0]["values"], [10, 11, 12])
+        render = payload["render"]
+        self.assertEqual(render["kind"], "scalar_sweep")
+        self.assertEqual(render["payload"]["axes"][0]["values"], [10, 11, 12])
+        cell_values = [cell["distribution"][0]["outcome"] for cell in render["payload"]["cells"]]
+        self.assertEqual(cell_values, [10, 11, 12])
 
-    def test_render_payload_uses_mean_for_bernoulli_sweeps(self):
+    def test_evaluate_includes_runtime_distribution_sweep_render_payload(self):
         payload = webbridge.evaluate("d20 >= [ac:18, 19, 20]")
         self.assertTrue(payload["ok"])
-        render = webbridge.render_payload(payload, settings={"probability_mode": "percent"})
-        self.assertEqual(render["kind"], "line")
-        self.assertEqual(render["spec"]["y_label"], "Probability (%)")
-        self.assertEqual(render["categories"], [18, 19, 20])
-        self.assertEqual(render["series"][0]["values"], [15.0, 10.0, 5.0])
+        render = payload["render"]
+        self.assertEqual(render["kind"], "distribution_sweep")
+        self.assertEqual(render["payload"]["axes"][0]["values"], [18, 19, 20])
+        success_probabilities = [
+            next(entry["probability"] for entry in cell["distribution"] if entry["outcome"] == 1)
+            for cell in render["payload"]["cells"]
+        ]
+        self.assertEqual(len(success_probabilities), 3)
+        self.assertAlmostEqual(success_probabilities[0], 15.0)
+        self.assertAlmostEqual(success_probabilities[1], 10.0)
+        self.assertAlmostEqual(success_probabilities[2], 5.0)
 
     def test_render_statements_use_percent_probabilities(self):
         payload = webbridge.evaluate('r_dist(d2, x="Outcome"); render()')
@@ -172,6 +179,21 @@ class WebBridgeTest(unittest.TestCase):
         self.assertEqual(report["title"], "4d6 drop lowest ability scores")
         self.assertEqual(len(report["rows"]), 3)
         self.assertEqual(report["rows"][0][0]["title"], "Single ability score distribution")
+
+    def test_direct_results_use_runtime_auto_chart_plans_for_fallback_rendering(self):
+        payload = webbridge.evaluate(
+            "attack_roll = d20 + 5\n"
+            "hit_check = attack_roll >= 15\n"
+            "weapon_damage = 2 d 6 + 4\n"
+            "hit_check -> weapon_damage | 0\n"
+        )
+        self.assertTrue(payload["ok"], payload.get("error"))
+        self.assertEqual(payload["reports"], [])
+        self.assertIsNotNone(payload["render"])
+        self.assertEqual(payload["render"]["kind"], "unswept_distribution")
+        omit_hints = [hint for hint in payload["render"]["hints"] if hint["kind"] == "omit_outcome"]
+        self.assertEqual(len(omit_hints), 1)
+        self.assertEqual(omit_hints[0]["outcome"], 0)
 
 
 if __name__ == "__main__":

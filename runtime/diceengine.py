@@ -48,6 +48,8 @@ def runtime_error(message, hint=None):
 class RenderConfig:
     interactive_blocking: bool = True
     wait_for_figures_on_exit: bool = False
+    auto_render_pending_on_exit: bool = True
+    omit_dominant_zero_outcome: bool = True
     probability_mode: str | None = None
     backend: str = "matplotlib"
 
@@ -78,6 +80,15 @@ class RenderConfig:
 
     def with_backend(self, backend):
         return replace(self, backend=_normalize_render_backend(backend))
+
+    def with_auto_render_pending(self, enabled):
+        return replace(self, auto_render_pending_on_exit=_normalize_auto_render_pending(enabled))
+
+    def with_omit_dominant_zero_outcome(self, enabled):
+        return replace(
+            self,
+            omit_dominant_zero_outcome=_normalize_omit_dominant_zero_outcome(enabled),
+        )
 
     def mode_name(self):
         if self.interactive_blocking:
@@ -112,6 +123,38 @@ def _normalize_probability_mode(mode):
             hint='Use "percent" or "raw".',
         )
     return normalized
+
+
+def _normalize_auto_render_pending(enabled):
+    if isinstance(enabled, bool):
+        return enabled
+    if not isinstance(enabled, str):
+        runtime_error("render autoflush mode must be a string or boolean")
+    normalized = enabled.strip().lower()
+    if normalized in ("on", "true", "yes", "auto"):
+        return True
+    if normalized in ("off", "false", "no", "manual"):
+        return False
+    runtime_error(
+        "unknown render autoflush mode {}".format(enabled),
+        hint='Use "on" or "off".',
+    )
+
+
+def _normalize_omit_dominant_zero_outcome(enabled):
+    if isinstance(enabled, bool):
+        return enabled
+    if not isinstance(enabled, str):
+        runtime_error("dominant-zero render mode must be a string or boolean")
+    normalized = enabled.strip().lower()
+    if normalized in ("on", "true", "yes", "omit", "auto"):
+        return True
+    if normalized in ("off", "false", "no", "show", "keep"):
+        return False
+    runtime_error(
+        "unknown dominant-zero render mode {}".format(enabled),
+        hint='Use "on" or "off".',
+    )
 
 
 def _normalize_render_backend(backend):
@@ -497,6 +540,11 @@ class ReportSpec:
 
     def is_empty(self):
         return self.title is None and self.hero is None and not self.blocks
+
+    def has_renderable_content(self):
+        if self.hero is not None:
+            return True
+        return any(block.kind in {"panel", "row"} for block in self.blocks)
 
 
 @dataclass(frozen=True)

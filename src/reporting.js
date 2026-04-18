@@ -662,6 +662,10 @@ export function renderLegacyCharts(charts, container) {
   container.replaceChildren();
   const items = Array.isArray(charts) ? charts : charts ? [charts] : [];
   for (const chart of items) {
+    if (chart?.payload && chart?.width_class) {
+      container.appendChild(renderPanel(chart));
+      continue;
+    }
     const wrapper = document.createElement("div");
     wrapper.className = "chart-stack report-panel";
     renderPanelCaption(

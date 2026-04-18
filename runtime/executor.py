@@ -332,6 +332,8 @@ class Executor(ABC):
             "total",
             "set_render_mode",
             "set_render_backend",
+            "set_render_autoflush",
+            "set_render_omit_dominant_zero",
             "set_probability_mode",
             "r_title",
             "r_note",
@@ -462,6 +464,13 @@ class Executor(ABC):
         self.pending_report = diceengine.ReportSpec()
         return output_path
 
+    def flush_pending_report_at_end(self):
+        if not self.render_config.auto_render_pending_on_exit:
+            return None
+        if not self.pending_report.has_renderable_content():
+            return None
+        return self.render()
+
     def set_render_mode(self, mode):
         self.render_config = self.render_config.with_mode(mode)
         return self.render_config.mode_name()
@@ -469,6 +478,14 @@ class Executor(ABC):
     def set_render_backend(self, backend):
         self.render_config = self.render_config.with_backend(backend)
         return self.render_config.backend
+
+    def set_render_autoflush(self, enabled):
+        self.render_config = self.render_config.with_auto_render_pending(enabled)
+        return "on" if self.render_config.auto_render_pending_on_exit else "off"
+
+    def set_render_omit_dominant_zero(self, enabled):
+        self.render_config = self.render_config.with_omit_dominant_zero_outcome(enabled)
+        return "on" if self.render_config.omit_dominant_zero_outcome else "off"
 
     def set_probability_mode(self, mode):
         self.render_config = self.render_config.with_probability_mode(mode)

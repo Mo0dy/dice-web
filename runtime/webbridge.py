@@ -30,11 +30,13 @@ def _ensure_dice_imports():
 _ensure_dice_imports()
 
 from diagnostics import DiagnosticError, format_diagnostic
-from diceengine import Distribution, Distributions, FiniteMeasure, RenderConfig
+from diceengine import ChartSpec, Distribution, Distributions, FiniteMeasure, RenderConfig
 from diceparser import DiceParser, ParserError
 from executor import ExactExecutor
 from interpreter import COMPLETION_KEYWORDS, CallableEntry, Interpreter, STDLIB_ROOT
+from jsonrenderer import serialize_chart_plan
 from lexer import ASSIGN, Lexer, LexerError, SEMI
+from renderplan import build_chart_plan
 
 
 DEFAULT_SOURCE_PATH = "main.dice"
@@ -517,167 +519,19 @@ def _all_bernoulli_cells(payload):
     return all(_distribution_is_bernoulli(cell["distribution"]) for cell in payload["cells"])
 
 
-def _cell_lookup(payload):
-    lookup = {}
-    for cell in payload["cells"]:
-        key = tuple(entry["value"] for entry in cell["coordinates"])
-        lookup[key] = cell
-    return lookup
-
-
-def _probability_scale(probability_mode):
-    return 100.0 if probability_mode == "percent" else 1.0
-
-
-def _render_y_label(kind, probability_mode):
-    if kind in ("bar", "heatmap_distribution"):
-        return "Probability (%)" if probability_mode == "percent" else "Probability"
-    return "Value"
-
-
-def _render_payload_from_distributions(payload, probability_mode):
-    axes = payload["axes"]
-    cells = payload["cells"]
-    scale = _probability_scale(probability_mode)
-    if not axes:
-        distribution = cells[0]["distribution"]
-        return {
-            "kind": "bar",
-            "spec": {
-                "kind": "bar",
-                "x_label": "Outcome",
-                "y_label": _render_y_label("bar", probability_mode),
-                "series_labels": [],
-            },
-            "categories": [entry["outcome"] for entry in distribution],
-            "series": [
-                {
-                    "name": "Probability",
-                    "values": [_round_numeric(entry["probability"] * scale, 6) for entry in distribution],
-                }
-            ],
-        }
-    if len(axes) == 1:
-        axis = axes[0]
-        if _all_scalar_cells(payload):
-            lookup = _cell_lookup(payload)
-            return {
-                "kind": "line",
-                "spec": {
-                    "kind": "line",
-                    "x_label": _render_axis_name(axis, 0),
-                    "y_label": "Value",
-                    "series_labels": [],
-                },
-                "categories": list(axis["values"]),
-                "series": [
-                    {
-                        "name": "Value",
-                        "values": [
-                            _distribution_scalar_value(lookup[(x_value,)]["distribution"])
-                            for x_value in axis["values"]
-                        ],
-                    }
-                ],
-            }
-        if _all_bernoulli_cells(payload):
-            lookup = _cell_lookup(payload)
-            return {
-                "kind": "line",
-                "spec": {
-                    "kind": "line",
-                    "x_label": _render_axis_name(axis, 0),
-                    "y_label": _render_y_label("bar", probability_mode),
-                    "series_labels": [],
-                },
-                "categories": list(axis["values"]),
-                "series": [
-                    {
-                        "name": "Probability",
-                        "values": [
-                            _round_numeric(_distribution_mean_value(lookup[(x_value,)]["distribution"]) * scale, 6)
-                            for x_value in axis["values"]
-                        ],
-                    }
-                ],
-            }
-        lookup = _cell_lookup(payload)
-        outcomes = _ordered_labels(
-            {
-                entry["outcome"]
-                for cell in cells
-                for entry in cell["distribution"]
-            }
-        )
-        matrix = []
-        for outcome in outcomes:
-            row = []
-            for x_value in axis["values"]:
-                distribution = lookup[(x_value,)]["distribution"]
-                probability = next(
-                    (
-                        entry["probability"]
-                        for entry in distribution
-                        if entry["outcome"] == outcome
-                    ),
-                    0,
-                )
-                row.append(_round_numeric(probability * scale, 6))
-            matrix.append(row)
-        return {
-            "kind": "heatmap_distribution",
-            "spec": {
-                "kind": "heatmap_distribution",
-                "x_label": _render_axis_name(axis, 0),
-                "y_label": "Outcome",
-                "series_labels": [],
-            },
-            "x_values": list(axis["values"]),
-            "y_values": outcomes,
-            "matrix": matrix,
-            "color_label": _render_y_label("heatmap_distribution", probability_mode),
-        }
-    if len(axes) == 2 and (_all_scalar_cells(payload) or _all_bernoulli_cells(payload)):
-        y_axis = axes[0]
-        x_axis = axes[1]
-        lookup = _cell_lookup(payload)
-        matrix = []
-        for y_value in y_axis["values"]:
-            row = []
-            for x_value in x_axis["values"]:
-                distribution = lookup[(y_value, x_value)]["distribution"]
-                if _distribution_is_scalar(distribution):
-                    row.append(_distribution_scalar_value(distribution))
-                else:
-                    row.append(_round_numeric(_distribution_mean_value(distribution) * scale, 6))
-            matrix.append(row)
-        return {
-            "kind": "heatmap_scalar",
-            "spec": {
-                "kind": "heatmap_scalar",
-                "x_label": _render_axis_name(x_axis, 1),
-                "y_label": _render_axis_name(y_axis, 0),
-                "series_labels": [],
-            },
-            "x_values": list(x_axis["values"]),
-            "y_values": list(y_axis["values"]),
-            "matrix": matrix,
-            "color_label": "Value" if _all_scalar_cells(payload) else _render_y_label("heatmap_distribution", probability_mode),
-        }
-    return None
+def _render_payload_from_result(result, settings=None):
+    settings = {} if settings is None else dict(settings)
+    probability_mode = settings.get("probability_mode", "percent")
+    render_config = RenderConfig.from_mode("nonblocking").with_probability_mode(probability_mode)
+    try:
+        plan = build_chart_plan(ChartSpec("auto", payload=result), render_config=render_config)
+    except Exception:
+        return None
+    return serialize_chart_plan(plan, probability_mode=probability_mode)
 
 
 def render_payload(result, settings=None):
-    settings = {} if settings is None else dict(settings)
-    probability_mode = settings.get("probability_mode", "percent")
-    payload = result.get("result", result) if isinstance(result, dict) else result
-    if not isinstance(payload, dict):
-        return None
-    if payload.get("type") not in ("distributions", "distribution"):
-        return None
-    if payload.get("type") == "distribution":
-        payload = {"type": "distributions", "axes": [], "cells": [{"coordinates": [], "distribution": payload["distribution"]}]}
-    return _render_payload_from_distributions(payload, probability_mode)
+    return None
 
 
 def _stdlib_imports():
@@ -984,6 +838,7 @@ def evaluate(source, files=None, settings=None):
             probability_mode=text_probability_mode,
         )
         reports = list(executor.render_reports)
+        render = None if reports else _render_payload_from_result(result, {"probability_mode": "percent"})
         if reports and serialized.get("type") == "string" and serialized.get("value") == "__dice_web_render__":
             panel_count = sum(_count_report_panels(report) for report in reports)
             serialized = {"type": "string", "value": "Rendered {} plot(s).".format(panel_count)}
@@ -993,4 +848,5 @@ def evaluate(source, files=None, settings=None):
             "text": text,
             "result": serialized,
             "reports": reports,
+            "render": render,
         }

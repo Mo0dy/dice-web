@@ -12,6 +12,5 @@ hit_check = attack_roll >= 15
 weapon_damage = 2 d 6 + 4
 attack_damage = hit_check -> weapon_damage | 0
 
-# The final value in a file is what the CLI prints by default.
-# Here we return the full exact damage distribution for one attack.
-attack_damage
+# A trailing pending chart auto-renders at the end of the script.
+r_auto(attack_damage)
