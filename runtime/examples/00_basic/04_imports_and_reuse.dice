@@ -1,0 +1,13 @@
+# 04_imports_and_reuse.dice
+#
+# Imports let you reuse helpers from other dice files or Python files.
+# The packaged stdlib lives behind the `std:` prefix.
+
+import "std:dnd/weapons"
+
+ac = [AC:10..20]
+plain = longsword_attack(ac, 7, 4) $ mean
+blessed = longsword_attack(ac, 7, 4, hit_bonus=d4) $ mean
+
+# Return a simple imported-helper comparison.
+blessed - plain

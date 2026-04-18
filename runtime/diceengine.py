@@ -1230,6 +1230,8 @@ def cum(value):
         entries = []
         for outcome in _ordered_numeric_outcomes(distrib, "cum"):
             cumulative += distrib[outcome]
+            if abs(cumulative - 1.0) <= PROBABILITY_TOLERANCE:
+                cumulative = 1.0
             entries.append((outcome, cumulative))
         return FiniteMeasure(entries)
 
@@ -1243,6 +1245,8 @@ def surv(value):
         entries = []
         for outcome in _ordered_numeric_outcomes(distrib, "surv"):
             remaining -= distrib[outcome]
+            if abs(remaining) <= PROBABILITY_TOLERANCE:
+                remaining = 0.0
             entries.append((outcome, remaining))
         return FiniteMeasure(entries)
 

@@ -108,23 +108,36 @@ class WebBridgeTest(unittest.TestCase):
     def test_list_samples_exposes_runnable_dice_samples(self):
         samples = webbridge.list_samples()
         paths = {sample["path"] for sample in samples}
-        self.assertIn("dnd/ability_scores_4d6h3.dice", paths)
-        self.assertIn("dnd/combat_profiles.dice", paths)
-        self.assertIn("sweeps/indexing_basics.dice", paths)
+        self.assertIn("00_basic/00_introduction.dice", paths)
+        self.assertIn("01_dnd/ability_scores_4d6h3.dice", paths)
+        self.assertIn("02_python_extensions/00_import_python_library.dice", paths)
         self.assertIn("std:dnd/core", paths)
-        self.assertNotIn("dnd/lib/weapons.dice", paths)
+        self.assertNotIn("02_python_extensions/basic_library.py", paths)
+
+    def test_list_samples_preserves_example_folder_then_file_order(self):
+        samples = [sample["path"] for sample in webbridge.list_samples() if sample["kind"] == "sample"]
+        self.assertGreaterEqual(len(samples), 3)
+        self.assertEqual(samples[0], "00_basic/00_introduction.dice")
+        self.assertEqual(samples[1], "00_basic/01_sweeps.dice")
+        self.assertEqual(samples[2], "00_basic/02_sweeps_advanced.dice")
 
     def test_load_sample_returns_workspace_package(self):
-        sample = webbridge.load_sample("dnd/combat_profiles.dice")
-        self.assertEqual(sample["source_path"], "dnd/combat_profiles.dice")
-        self.assertIn("dnd/ability_scores_4d6h3.dice", sample["files"])
+        sample = webbridge.load_sample("01_dnd/combat_profiles.dice")
+        self.assertEqual(sample["source_path"], "01_dnd/combat_profiles.dice")
+        self.assertIn("01_dnd/ability_scores_4d6h3.dice", sample["files"])
         self.assertIn('import "std:dnd/weapons.dice"', sample["source"])
 
     def test_load_sweep_sample_returns_workspace_package(self):
-        sample = webbridge.load_sample("sweeps/indexing_basics.dice")
-        self.assertEqual(sample["source_path"], "sweeps/indexing_basics.dice")
-        self.assertIn("sweeps/adaptive_best_choice.dice", sample["files"])
+        sample = webbridge.load_sample("00_basic/06_indexing_basics.dice")
+        self.assertEqual(sample["source_path"], "00_basic/06_indexing_basics.dice")
+        self.assertIn("00_basic/07_adaptive_best_choice.dice", sample["files"])
         self.assertIn("study[focus", sample["source"])
+
+    def test_load_python_extension_sample_includes_sidecar_python_files(self):
+        sample = webbridge.load_sample("02_python_extensions/00_import_python_library.dice")
+        self.assertEqual(sample["source_path"], "02_python_extensions/00_import_python_library.dice")
+        self.assertIn("02_python_extensions/basic_library.py", sample["files"])
+        self.assertIn('import "basic_library.py"', sample["source"])
 
     def test_load_stdlib_returns_workspace_package(self):
         sample = webbridge.load_sample("std:dnd/spells")
@@ -146,7 +159,7 @@ class WebBridgeTest(unittest.TestCase):
                 self.assertTrue(payload["ok"], payload.get("error"))
 
     def test_render_statements_are_captured_as_browser_payloads(self):
-        sample = webbridge.load_sample("dnd/ability_scores_4d6h3.dice")
+        sample = webbridge.load_sample("01_dnd/ability_scores_4d6h3.dice")
         payload = webbridge.evaluate(
             sample["source"],
             files=sample["files"],

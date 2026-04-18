@@ -40,7 +40,10 @@ from lexer import ASSIGN, Lexer, LexerError, SEMI
 DEFAULT_SOURCE_PATH = "main.dice"
 DEFAULT_ROUNDLEVEL = 6
 IMPORT_PATH_CHARS = frozenset("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_./:-")
-RUNNABLE_SAMPLE_ROOTS = ("dnd", "sweeps")
+SAMPLE_ROOT_CANDIDATES = (
+    ("examples", ("00_basic", "01_dnd", "02_python_extensions")),
+    ("samples", ("dnd", "sweeps")),
+)
 
 
 def _is_numeric(value):
@@ -71,8 +74,20 @@ def _deterministic_outcome(distrib):
     return next(iter(distrib.keys()))
 
 
+def _is_scalar_cell(cell):
+    if isinstance(cell, Distribution):
+        return _is_deterministic_distribution(cell)
+    return _is_numeric(cell) or isinstance(cell, str)
+
+
+def _scalar_cell_value(cell):
+    if isinstance(cell, Distribution):
+        return _deterministic_outcome(cell)
+    return cell
+
+
 def _all_scalar(result):
-    return all(_is_deterministic_distribution(distrib) for distrib in result.cells.values())
+    return all(_is_scalar_cell(cell) for cell in result.cells.values())
 
 
 def _format_rounded_numeric(value, roundlevel=0):
@@ -164,7 +179,7 @@ def _format_scalar_sweep(result, roundlevel=0):
             [
                 (
                     _format_label(value, roundlevel),
-                    _format_scalar(_deterministic_outcome(result.cells[(value,)]), roundlevel),
+                    _format_scalar(_scalar_cell_value(result.cells[(value,)]), roundlevel),
                 )
                 for value in axis.values
             ]
@@ -210,7 +225,7 @@ def _format_scalar_heatmap(result, roundlevel=0):
     for row_value in row_axis.values:
         row = [_format_label(row_value, roundlevel)]
         for col_value in col_axis.values:
-            scalar = _deterministic_outcome(result.cells[(row_value, col_value)])
+            scalar = _scalar_cell_value(result.cells[(row_value, col_value)])
             row.append(_format_scalar(scalar, roundlevel))
         rows.append(row)
     return _string_table(rows)
@@ -218,9 +233,12 @@ def _format_scalar_heatmap(result, roundlevel=0):
 
 def _format_result_text(result, roundlevel=0, probability_mode="percent"):
     if isinstance(result, Distributions):
-        if result.is_unswept() and isinstance(result.only_distribution(), FiniteMeasure) and not isinstance(result.only_distribution(), Distribution):
-            return str(result.only_distribution())
+        only_cell = next(iter(result.cells.values()))
+        if result.is_unswept() and isinstance(only_cell, FiniteMeasure) and not isinstance(only_cell, Distribution):
+            return str(only_cell)
         if result.is_unswept():
+            if _is_scalar_cell(only_cell):
+                return _format_scalar(_scalar_cell_value(only_cell), roundlevel)
             return _format_unswept_distribution(
                 result.only_distribution(),
                 roundlevel,
@@ -365,17 +383,17 @@ def _write_workspace_files(root_dir, source, files=None, source_path=DEFAULT_SOU
 
 def _discover_sample_root():
     current_dir = os.path.dirname(os.path.abspath(__file__))
-    candidates = [
-        os.path.join(current_dir, "samples"),
-        os.path.join(current_dir, "dice", "samples"),
-    ]
-    for candidate in candidates:
-        if os.path.isdir(candidate):
-            return candidate
-    return None
+    search_roots = [current_dir, os.path.join(current_dir, "dice")]
+    for base_dir in search_roots:
+        for root_name, runnable_roots in SAMPLE_ROOT_CANDIDATES:
+            candidate = os.path.join(base_dir, root_name)
+            if os.path.isdir(candidate):
+                return candidate, runnable_roots
+    return None, ()
 
 
-SAMPLE_ROOT = _discover_sample_root()
+SAMPLE_ROOT, RUNNABLE_SAMPLE_ROOTS = _discover_sample_root()
+SAMPLE_GROUP_LABEL = "Examples" if SAMPLE_ROOT and os.path.basename(SAMPLE_ROOT) == "examples" else "Samples"
 
 
 def _stdlib_path(import_name):
@@ -703,7 +721,8 @@ def list_samples():
             runnable_root = os.path.join(SAMPLE_ROOT, sample_root_name)
             if not os.path.isdir(runnable_root):
                 continue
-            for root, _dirs, filenames in os.walk(runnable_root):
+            for root, dirs, filenames in os.walk(runnable_root):
+                dirs.sort()
                 for filename in sorted(filenames):
                     if not filename.endswith(".dice"):
                         continue
@@ -716,7 +735,7 @@ def list_samples():
                         {
                             "path": relative_path,
                             "name": os.path.splitext(filename)[0].replace("_", " "),
-                            "group": f"Samples/{parent}",
+                            "group": f"{SAMPLE_GROUP_LABEL}/{parent}",
                             "kind": "sample",
                         }
                     )
@@ -731,7 +750,7 @@ def list_samples():
             }
         )
 
-    return sorted(entries, key=lambda item: (item["group"], item["path"]))
+    return entries
 
 
 def load_sample(path):
@@ -754,21 +773,22 @@ def load_sample(path):
     relative_path, absolute_path = _sample_relative_path(path)
     if not os.path.isfile(absolute_path):
         raise ValueError("Unknown sample {}".format(path))
-    sample_root = os.path.dirname(os.path.dirname(absolute_path))
+    top_level = relative_path.split("/", 1)[0]
+    sample_root = os.path.join(SAMPLE_ROOT, top_level)
     files = {}
-    for root, _dirs, filenames in os.walk(sample_root):
-        for filename in filenames:
-            if not filename.endswith(".dice"):
+    for root, dirs, filenames in os.walk(sample_root):
+        dirs.sort()
+        for filename in sorted(filenames):
+            if not (filename.endswith(".dice") or filename.endswith(".py")):
                 continue
             file_path = os.path.join(root, filename)
-            relative_file_path = os.path.relpath(file_path, sample_root).replace(os.sep, "/")
+            relative_file_path = os.path.relpath(file_path, SAMPLE_ROOT).replace(os.sep, "/")
             with open(file_path, encoding="utf-8") as handle:
                 files[relative_file_path] = handle.read()
-    sample_key = os.path.relpath(absolute_path, sample_root).replace(os.sep, "/")
     return {
-        "path": sample_key,
-        "source_path": sample_key,
-        "source": files[sample_key],
+        "path": relative_path,
+        "source_path": relative_path,
+        "source": files[relative_path],
         "files": files,
     }
 

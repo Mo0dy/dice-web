@@ -1,0 +1,18 @@
+# 05_reports.dice
+#
+# The report surface is stateful:
+# - build chart specs with `r_*`
+# - optionally shape the layout
+# - call render(...) to flush the report and reset state
+
+damage(ac):
+    d20 + 7 >= ac -> 1 d 8 + 4 | 0
+
+ac = [AC:10..20]
+mean_damage = damage(ac) $ mean
+hit_chance = (d20 + 7 >= ac) $ mean
+
+r_title("Basic attack report")
+r_hero(r_auto(mean_damage, x="Armor class", y="Damage", title="Expected damage by AC"))
+r_row(r_auto(hit_chance, x="Armor class", y="Hit chance", title="Chance to hit"), r_dist(damage(15), x="Damage", title="Damage at AC 15"))
+render()

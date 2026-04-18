@@ -1,0 +1,14 @@
+# 03_functions_and_split.dice
+#
+# Variables let you name intermediate results.
+# Functions let you reuse logic.
+# `split` is for cases where one roll should be reused across several checks.
+
+longsword_attack(ac, bonus=7, mod=4):
+    split d20 | == 20 -> 2 d 8 + mod | + bonus >= ac -> 1 d 8 + mod ||
+
+attack_mean(ac, bonus=7, mod=4):
+    longsword_attack(ac, bonus=bonus, mod=mod) $ mean
+
+armor_classes = [AC:10..20]
+attack_mean(armor_classes)

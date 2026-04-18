@@ -1,6 +1,0 @@
-# Variable-driven sweep indexing with a coordinate record, a filter, and an axis spec.
-study = [PLAN:1, 2] + [LEVEL:10, 20] + [AC:100, 200, 300]
-focus = (PLAN: 2)
-keep = ("AC", "LEVEL")
-
-study[focus, AC in {100, 300}, keep]

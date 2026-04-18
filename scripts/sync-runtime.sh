@@ -21,7 +21,7 @@ RUNTIME_FILES=(
 )
 
 rm -rf "$RUNTIME_DIR"
-mkdir -p "$RUNTIME_DIR/stdlib" "$RUNTIME_DIR/samples"
+mkdir -p "$RUNTIME_DIR/stdlib" "$RUNTIME_DIR/examples"
 
 for relative_path in "${RUNTIME_FILES[@]}"; do
   cp "$SOURCE_DIR/$relative_path" "$RUNTIME_DIR/$relative_path"
@@ -31,8 +31,7 @@ cp "$BRIDGE_SOURCE" "$RUNTIME_DIR/webbridge.py"
 cp "$VIEWER_SOURCE" "$RUNTIME_DIR/viewer.py"
 
 cp -R "$SOURCE_DIR/stdlib/." "$RUNTIME_DIR/stdlib/"
-cp -R "$SOURCE_DIR/samples/dnd" "$RUNTIME_DIR/samples/"
-cp -R "$SOURCE_DIR/samples/sweeps" "$RUNTIME_DIR/samples/"
+cp -R "$SOURCE_DIR/examples/." "$RUNTIME_DIR/examples/"
 
 cd "$RUNTIME_DIR"
 python - <<'PY'

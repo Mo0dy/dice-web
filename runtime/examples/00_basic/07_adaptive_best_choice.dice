@@ -1,4 +1,8 @@
+# 07_adaptive_best_choice.dice
+#
 # Multi-axis argmaxover returns coordinate records that can be fed back into indexing.
+# This is the compact version of the "choose the best plan, then gather those cells"
+# pattern that shows up often in larger studies.
 study = [PLAN:1, 20] + [LEVEL:0, 5] + [AC:10, 30]
 best = argmaxover(study, ("PLAN", "LEVEL"))
 

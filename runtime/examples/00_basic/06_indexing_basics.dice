@@ -1,0 +1,12 @@
+# 06_indexing_basics.dice
+#
+# This is a compact follow-on example for sweep indexing.
+# It shows three common indexing tools in one place:
+# - a coordinate record
+# - a domain filter
+# - an axis spec that keeps and reorders the remaining axes
+study = [PLAN:1, 2] + [LEVEL:10, 20] + [AC:100, 200, 300]
+focus = (PLAN: 2)
+keep = ("AC", "LEVEL")
+
+study[focus, AC in {100, 300}, keep]

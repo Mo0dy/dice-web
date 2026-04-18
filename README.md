@@ -37,10 +37,10 @@ Static browser playground for the `dice` language. The site runs the runtime in 
 - Pyodide runtime in a dedicated worker
 - Structured JSON evaluation payloads through the repo-local `webbridge.py`
 - Bar, line, and heatmap rendering in the browser
-- Bundled D&D and sweep sample picker with relative-import support
+- Bundled example picker with ordered basic, D&D, and Python-extension examples
 - Shareable URL state
 - Local saved snippets
 
 ## Runtime sync
 
-The worker loads only the copied browser runtime from `runtime/`. Re-run `./scripts/sync-runtime.sh` after changing either the vendored `dice` runtime files, the repo-local `webbridge.py`, or the bundled samples, then commit the refreshed `runtime/` directory with those changes.
+The worker loads only the copied browser runtime from `runtime/`. Re-run `./scripts/sync-runtime.sh` after changing either the vendored `dice` runtime files, the repo-local `webbridge.py`, or the bundled examples, then commit the refreshed `runtime/` directory with those changes.

@@ -1,0 +1,17 @@
+# 00_introduction.dice
+#
+# Start here if you only want the basic "dice as exact tabletop math" model.
+# The main ideas are:
+# - `d20` is an exact distribution, not one sampled roll
+# - `2d6` rolls twice and adds the results
+# - comparisons such as `>=` produce success / failure distributions
+# - `-> ... | ...` turns a success check into a result distribution
+
+attack_roll = d20 + 5
+hit_check = attack_roll >= 15
+weapon_damage = 2 d 6 + 4
+attack_damage = hit_check -> weapon_damage | 0
+
+# The final value in a file is what the CLI prints by default.
+# Here we return the full exact damage distribution for one attack.
+attack_damage

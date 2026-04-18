@@ -212,9 +212,10 @@ const DEFAULT_RESPONSES = {
     ok: true,
     result: [
       {
-        group: "Examples",
-        name: "Heatmap",
-        path: "samples/heatmap",
+        group: "Examples/00_basic",
+        kind: "sample",
+        name: "Introduction",
+        path: "00_basic/00_introduction.dice",
       },
     ],
   },
@@ -267,10 +268,10 @@ const DEFAULT_RESPONSES = {
   loadSample: {
     ok: true,
     result: {
-      source_path: "samples/demo/main.dice",
+      source_path: "00_basic/00_introduction.dice",
       files: {
-        "samples/demo/main.dice": 'import "./support"\ndamage = 2d6',
-        "samples/demo/support.dice": "bonus = 3",
+        "00_basic/00_introduction.dice": 'import "./support"\ndamage = 2d6',
+        "00_basic/support.dice": "bonus = 3",
       },
     },
   },

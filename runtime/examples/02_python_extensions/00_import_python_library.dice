@@ -1,0 +1,14 @@
+# 00_import_python_library.dice
+#
+# This is the first Python-extension workflow to learn:
+# - write a trusted Python file with @dicefunction exports
+# - import that file from dice
+# - call the imported helpers from ordinary dice code
+
+import "basic_library.py"
+
+base_values = [BASE:1..3]
+boosted_values = add_two(base_values)
+doubled_values = scale_damage(boosted_values, 2)
+
+doubled_values

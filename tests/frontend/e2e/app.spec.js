@@ -55,12 +55,47 @@ test("saves the active file through the file picker path", async ({ page }) => {
 test("loads a bundled sample and swaps the active file", async ({ page }) => {
   await openApp(page);
 
-  await page.getByRole("button", { name: "Load Sample" }).click();
-  await page.selectOption("#sample-dialog-select", "samples/heatmap");
+  await page.getByRole("button", { name: "Load Example" }).click();
+  await page.selectOption("#sample-dialog-select", "00_basic/00_introduction.dice");
   await page.locator("#sample-dialog-confirm").click();
 
-  await expect(page.getByTitle("samples/demo/main.dice", { exact: true })).toBeVisible();
+  await expect(page.getByTitle("00_basic/00_introduction.dice", { exact: true })).toBeVisible();
   await expect(page.getByRole("textbox", { name: "dice editor" })).toHaveValue('import "./support"\ndamage = 2d6');
+});
+
+test("loads the first basic example by default for a fresh session", async ({ page }) => {
+  await openApp(page);
+
+  await expect(page.getByTitle("00_basic/00_introduction.dice", { exact: true })).toBeVisible();
+  await expect(page.getByRole("textbox", { name: "dice editor" })).toHaveValue('import "./support"\ndamage = 2d6');
+  await expect(page.getByRole("button", { name: "main.dice", exact: true })).toHaveCount(0);
+});
+
+test("does not show browser-side distribution display controls", async ({ page }) => {
+  await openApp(page);
+
+  await expect(page.getByText("Show", { exact: true })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Omit-Zero" })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Tight" })).toHaveCount(0);
+});
+
+test("close all reloads the first basic example", async ({ page }) => {
+  await openApp(page);
+
+  await page.locator("#file-input").setInputFiles([
+    {
+      name: "alpha.dice",
+      mimeType: "text/plain",
+      buffer: Buffer.from("alpha = 1"),
+    },
+  ]);
+  await expect(page.getByRole("button", { name: "alpha.dice", exact: true })).toBeVisible();
+
+  await page.getByRole("button", { name: "Close All" }).click();
+
+  await expect(page.getByTitle("00_basic/00_introduction.dice", { exact: true })).toBeVisible();
+  await expect(page.getByRole("textbox", { name: "dice editor" })).toHaveValue('import "./support"\ndamage = 2d6');
+  await expect(page.getByRole("button", { name: "alpha.dice", exact: true })).toHaveCount(0);
 });
 
 test("renders successful output into chart, raw, and json panels", async ({ page }) => {

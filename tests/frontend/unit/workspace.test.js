@@ -19,11 +19,11 @@ describe("workspace helpers", () => {
       entryPath: "main.dice",
       activeFilePath: "notes/readme.dice",
       openFiles: ["missing.dice", "notes/readme.dice"],
-      samplePath: "samples/demo",
+      samplePath: "00_basic/00_introduction.dice",
     });
 
     expect(workspace).toEqual({
-      samplePath: "samples/demo",
+      samplePath: "00_basic/00_introduction.dice",
       files: {
         "notes/readme.dice": "result = 1",
         "main.dice": "",

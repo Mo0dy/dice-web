@@ -1,0 +1,17 @@
+# 01_sweeps.dice
+#
+# Sweeps let you evaluate one calculation over many inputs at once.
+# This is the "parameter study" surface of dice.
+#
+# If you want indexing, argmax, or multi-axis gather patterns,
+# see 02_sweeps_advanced.dice next.
+
+attack_damage(ac, bonus=7, mod=4):
+    d20 + bonus >= ac -> 1 d 8 + mod | 0
+
+armor_classes = [AC:10..20]
+hit_chance = (d20 + 7 >= armor_classes) $ mean
+expected_damage = attack_damage(armor_classes) $ mean
+
+# Return the expected-damage sweep.
+expected_damage

@@ -1,0 +1,16 @@
+# 02_sweeps_advanced.dice
+#
+# This file shows the next layer of sweep work:
+# - multiple named axes
+# - reducer helpers such as argmaxover(...)
+# - using returned coordinate records to gather values back out
+
+plan_damage(plan, ac):
+    split plan as name | name == "steady" -> (d20 + 7 >= ac -> 1 d 8 + 4 | 0) $ mean | otherwise -> (d20 + 5 >= ac -> 2 d 6 + 4 | 0) $ mean
+
+study = plan_damage([PLAN:"steady", "swingy"], [AC:10..20])
+best_plan_by_ac = argmaxover(study, "PLAN")
+best_damage_by_ac = study[best_plan_by_ac]
+
+# Return the gathered best damage line.
+best_damage_by_ac

@@ -224,6 +224,20 @@ function loadLegacySavedSource() {
   return saved || DEFAULT_SOURCE;
 }
 
+function hasLegacySavedSource() {
+  return window.localStorage.getItem(LEGACY_SOURCE_STORAGE_KEY) !== null;
+}
+
+function defaultBundledSamplePath() {
+  const firstBasicSample = samples.find(
+    (sample) => sample.kind === "sample" && sample.path.startsWith("00_basic/"),
+  );
+  if (firstBasicSample) {
+    return firstBasicSample.path;
+  }
+  return samples.find((sample) => sample.kind === "sample")?.path ?? null;
+}
+
 function loadInitialWorkspace() {
   const storedWorkspace = readStoredWorkspaceSnapshot();
   const initialWorkspace = createWorkspaceFromSnapshot(storedWorkspace);
@@ -335,16 +349,23 @@ function replaceCurrentFileSource(nextSource) {
   persistWorkspace();
 }
 
-function resetWorkspace() {
-  const source = currentSource();
+async function resetWorkspace() {
+  const defaultSamplePath = defaultBundledSamplePath();
+  if (defaultSamplePath) {
+    await loadSamplePath(defaultSamplePath, { replaceWorkspace: true });
+    await evaluateSource();
+    return;
+  }
+
   activeWorkspace = createWorkspace({
-    files: { "main.dice": source },
+    files: { "main.dice": DEFAULT_SOURCE },
     entryPath: "main.dice",
   });
   fileHandles = new Map();
   renderFileTabs();
   setEditorValue(currentSource());
   persistWorkspace();
+  await evaluateSource();
 }
 
 function refreshWorkspaceActions() {
@@ -544,8 +565,13 @@ function populateSampleDialog() {
   }
 
   sampleDialogSelect.replaceChildren(fragment);
-  if (activeWorkspace.samplePath) {
+  if (activeWorkspace.samplePath && samples.some((sample) => sample.path === activeWorkspace.samplePath)) {
     sampleDialogSelect.value = activeWorkspace.samplePath;
+    return;
+  }
+  const defaultSamplePath = defaultBundledSamplePath();
+  if (defaultSamplePath) {
+    sampleDialogSelect.value = defaultSamplePath;
   } else if (samples.length > 0) {
     sampleDialogSelect.value = samples[0].path;
   }
@@ -1186,138 +1212,6 @@ function formatHoverValue(value, label) {
   return label && label.includes("%") ? `${formatted}%` : formatted;
 }
 
-function numericCategoryValue(category) {
-  if (typeof category === "number") {
-    return Number.isFinite(category) ? category : null;
-  }
-  const numeric = Number(category);
-  return Number.isFinite(numeric) ? numeric : null;
-}
-
-function isZeroCategory(category) {
-  return numericCategoryValue(category) === 0;
-}
-
-function isPositiveNumericCategory(category) {
-  const numeric = numericCategoryValue(category);
-  return numeric !== null && numeric > 0;
-}
-
-function hasNumericCategories(chart) {
-  return Array.isArray(chart.categories) && chart.categories.length > 0 && chart.categories.every((category) => numericCategoryValue(category) !== null);
-}
-
-function canAdjustDistributionView(chart) {
-  return canToggleChart(chart) && hasNumericCategories(chart) && isProbabilityLabel(chart.spec?.y_label);
-}
-
-function significantTailThreshold(chart) {
-  const maxValue = Math.max(...chart.series.flatMap((series) => series.values), 0);
-  if (maxValue <= 0) {
-    return 0;
-  }
-  return Math.max(0.05, maxValue * 0.01);
-}
-
-function lastSignificantIndex(chart, threshold) {
-  let lastPositive = -1;
-  let lastSignificant = -1;
-  chart.series.forEach((series) => {
-    series.values.forEach((value, index) => {
-      if (value > 0) {
-        lastPositive = Math.max(lastPositive, index);
-      }
-      if (value >= threshold) {
-        lastSignificant = Math.max(lastSignificant, index);
-      }
-    });
-  });
-  return lastSignificant >= 0 ? lastSignificant : lastPositive;
-}
-
-function sliceCartesianChart(chart, endIndexInclusive) {
-  return {
-    ...chart,
-    categories: chart.categories.slice(0, endIndexInclusive + 1),
-    series: chart.series.map((seriesEntry) => ({
-      ...seriesEntry,
-      values: seriesEntry.values.slice(0, endIndexInclusive + 1),
-    })),
-  };
-}
-
-function prepareDistributionChart(chart, displayMode = "full") {
-  if (!canAdjustDistributionView(chart)) {
-    return { chart, notes: [] };
-  }
-
-  let displayChart = chart;
-  const notes = [];
-
-  if (displayMode === "omit-zero" || displayMode === "tight") {
-    const zeroIndex = displayChart.categories.findIndex((category) => isZeroCategory(category));
-    const hasPositiveCategory = displayChart.categories.some((category) => isPositiveNumericCategory(category));
-
-    if (zeroIndex >= 0 && hasPositiveCategory) {
-      const zeroValues = displayChart.series.map((series) => series.values[zeroIndex] ?? 0);
-      const hasVisibleZeroMass = zeroValues.some((value) => value > 0);
-      if (hasVisibleZeroMass) {
-        const categories = displayChart.categories.filter((_category, index) => index !== zeroIndex);
-        if (categories.length > 0) {
-          const series = displayChart.series.map((seriesEntry) => ({
-            ...seriesEntry,
-            values: seriesEntry.values.filter((_value, index) => index !== zeroIndex),
-          }));
-          notes.push(
-            displayChart.series.length === 1
-              ? `Zero outcome hidden: ${formatHoverValue(zeroValues[0], displayChart.spec.y_label)}`
-              : `Zero outcome hidden: ${displayChart.series
-                  .map((seriesEntry, index) => `${seriesEntry.name} ${formatHoverValue(zeroValues[index], displayChart.spec.y_label)}`)
-                  .join(", ")}`,
-          );
-          displayChart = {
-            ...displayChart,
-            categories,
-            series,
-          };
-        }
-      }
-    }
-  }
-
-  if (displayMode === "tight" && displayChart.categories.length > 1) {
-    const threshold = significantTailThreshold(displayChart);
-    const lastVisibleIndex = lastSignificantIndex(displayChart, threshold);
-    if (lastVisibleIndex >= 0 && lastVisibleIndex < displayChart.categories.length - 1) {
-      const lastVisibleCategory = displayChart.categories[lastVisibleIndex];
-      displayChart = sliceCartesianChart(displayChart, lastVisibleIndex);
-      notes.push(
-        `Tail hidden after ${lastVisibleCategory}; remaining values are below ${formatHoverValue(
-          threshold,
-          displayChart.spec.y_label,
-        )}`,
-      );
-    }
-  }
-
-  return { chart: displayChart, notes };
-}
-
-function defaultDistributionView(chart) {
-  if (!canAdjustDistributionView(chart)) {
-    return "full";
-  }
-  const omitZero = prepareDistributionChart(chart, "omit-zero");
-  const tight = prepareDistributionChart(chart, "tight");
-  if (tight.chart.categories.length + 2 < omitZero.chart.categories.length) {
-    return "tight";
-  }
-  if (omitZero.notes.length > 0) {
-    return "omit-zero";
-  }
-  return "full";
-}
-
 function createTooltipController(wrapper, tooltip) {
   function positionTooltip(event) {
     const bounds = wrapper.getBoundingClientRect();
@@ -1541,12 +1435,11 @@ function drawChartAxes(svg, options) {
   return { rotateXLabels };
 }
 
-function renderBarChart(chart, options = {}) {
-  const prepared = prepareDistributionChart(chart, options.displayMode);
+function renderBarChart(chart) {
   return {
-    notes: prepared.notes,
+    notes: [],
     node: renderSvgChart((svg, tooltip) => {
-      const displayChart = prepared.chart;
+      const displayChart = chart;
       const left = 76;
       const width = 620;
       const height = 222;
@@ -1596,12 +1489,11 @@ function renderBarChart(chart, options = {}) {
   };
 }
 
-function renderLineChart(chart, options = {}) {
-  const prepared = prepareDistributionChart(chart, options.displayMode);
+function renderLineChart(chart) {
   return {
-    notes: prepared.notes,
+    notes: [],
     node: renderSvgChart((svg, tooltip) => {
-      const displayChart = prepared.chart;
+      const displayChart = chart;
       const left = 76;
       const width = 620;
       const height = 222;
@@ -1768,14 +1660,7 @@ function buildLegend(chart) {
 function renderCartesianChart(chart, plotHost, options = {}) {
   const view = options.view ?? chartToggleView(chart.kind);
   const displayChart = view ? chartWithView(chart, view) : chart;
-  const rendered =
-    view === "line"
-      ? renderLineChart(displayChart, {
-          displayMode: options.displayMode,
-        })
-      : renderBarChart(displayChart, {
-          displayMode: options.displayMode,
-        });
+  const rendered = view === "line" ? renderLineChart(displayChart) : renderBarChart(displayChart);
   plotHost.replaceChildren(rendered.node);
   return rendered;
 }
@@ -1805,14 +1690,11 @@ function renderSingleChart(chart, container) {
     notesHost.className = "chart-notes";
     const legend = buildLegend(chart);
     let activeView = chartToggleView(chart.kind);
-    const supportsDistributionView = canAdjustDistributionView(chart);
-    let activeDisplayMode = defaultDistributionView(chart);
 
     const renderActiveChart = () => {
       const activeChart = chartWithView(chart, activeView);
       const rendered = renderCartesianChart(activeChart, plotHost, {
         view: activeView,
-        displayMode: activeDisplayMode,
       });
       notesHost.replaceChildren(
         ...rendered.notes.map((noteText) => {
@@ -1823,14 +1705,14 @@ function renderSingleChart(chart, container) {
         }),
       );
       if (modeLabel) {
-        modeLabel.textContent = supportsDistributionView ? `${activeChart.kind} · ${activeDisplayMode}` : activeChart.kind;
+        modeLabel.textContent = activeChart.kind;
       }
     };
 
     const syncButtons = (buttons) => {
       buttons.forEach((button) => {
-        const buttonValue = button.dataset.view ?? button.dataset.displayMode;
-        const activeValue = button.dataset.view ? activeView : button.dataset.displayMode ? activeDisplayMode : null;
+        const buttonValue = button.dataset.view;
+        const activeValue = button.dataset.view ? activeView : null;
         const isActive = buttonValue === activeValue;
         button.classList.toggle("is-active", isActive);
         button.setAttribute("aria-pressed", String(isActive));
@@ -1863,37 +1745,6 @@ function renderSingleChart(chart, container) {
     });
     controls.appendChild(viewControls);
 
-    if (supportsDistributionView) {
-      const displayControls = document.createElement("div");
-      displayControls.className = "chart-control-group";
-      const displayLabel = document.createElement("span");
-      displayLabel.className = "chart-control-label";
-      displayLabel.textContent = "Show";
-      displayControls.appendChild(displayLabel);
-      [
-        ["full", "Full"],
-        ["omit-zero", "Omit-Zero"],
-        ["tight", "Tight"],
-      ].forEach(([displayMode, label]) => {
-        const button = document.createElement("button");
-        button.type = "button";
-        button.className = "chart-toggle";
-        button.dataset.displayMode = displayMode;
-        button.textContent = label;
-        button.addEventListener("click", () => {
-          if (activeDisplayMode === displayMode) {
-            return;
-          }
-          activeDisplayMode = displayMode;
-          renderActiveChart();
-          syncButtons(controlButtons);
-        });
-        controlButtons.push(button);
-        displayControls.appendChild(button);
-      });
-      controls.appendChild(displayControls);
-    }
-
     syncButtons(controlButtons);
     renderActiveChart();
     container.appendChild(controls);
@@ -1905,7 +1756,7 @@ function renderSingleChart(chart, container) {
     return true;
   }
   if (chart.kind === "bar" || chart.kind === "compare_bar") {
-    const rendered = renderBarChart(chart, { displayMode: defaultDistributionView(chart) });
+    const rendered = renderBarChart(chart);
     container.appendChild(rendered.node);
     const legend = buildLegend(chart);
     if (legend) {
@@ -1920,7 +1771,7 @@ function renderSingleChart(chart, container) {
     return true;
   }
   if (chart.kind === "line" || chart.kind === "compare_line") {
-    const rendered = renderLineChart(chart, { displayMode: defaultDistributionView(chart) });
+    const rendered = renderLineChart(chart);
     container.appendChild(rendered.node);
     const legend = buildLegend(chart);
     if (legend) {
@@ -2035,17 +1886,17 @@ async function evaluateSource() {
   }
 }
 
-async function loadSamplePath(path) {
+async function loadSamplePath(path, { replaceWorkspace = false } = {}) {
   const sample = await callWorker("loadSample", { path });
   syncActiveFileFromEditor();
 
-  const files = { ...activeWorkspace.files, ...sample.files };
-  const openFiles = [...activeWorkspace.openFiles];
+  const files = replaceWorkspace ? { ...sample.files } : { ...activeWorkspace.files, ...sample.files };
+  const openFiles = replaceWorkspace ? [sample.source_path] : [...activeWorkspace.openFiles];
   if (!openFiles.includes(sample.source_path)) {
     openFiles.push(sample.source_path);
   }
 
-  const nextFileHandles = new Map(fileHandles);
+  const nextFileHandles = replaceWorkspace ? new Map() : new Map(fileHandles);
   for (const samplePath of Object.keys(sample.files)) {
     nextFileHandles.delete(samplePath);
   }
@@ -2114,7 +1965,7 @@ loadSampleButton.addEventListener("click", () => {
 });
 
 closeAllButton.addEventListener("click", () => {
-  resetWorkspace();
+  void resetWorkspace();
 });
 
 openReportButton.addEventListener("click", () => {
@@ -2213,6 +2064,11 @@ async function boot() {
       renderFileTabs();
       setEditorValue(currentSource());
       persistWorkspace();
+    } else if (!hasSavedWorkspace && !hasLegacySavedSource()) {
+      const defaultSamplePath = defaultBundledSamplePath();
+      if (defaultSamplePath) {
+        await loadSamplePath(defaultSamplePath, { replaceWorkspace: true });
+      }
     }
     await evaluateSource();
   } catch (error) {
