@@ -8,6 +8,7 @@ BRIDGE_SOURCE="$ROOT_DIR/webbridge.py"
 VIEWER_SOURCE="$ROOT_DIR/viewer.py"
 
 RUNTIME_FILES=(
+  dice.py
   diagnostics.py
   diceengine.py
   diceparser.py

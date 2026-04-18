@@ -1,6 +1,7 @@
 {
   "files": [
     "diagnostics.py",
+    "dice.py",
     "diceengine.py",
     "diceparser.py",
     "examples/00_basic/00_introduction.dice",
