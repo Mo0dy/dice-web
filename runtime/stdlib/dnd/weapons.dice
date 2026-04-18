@@ -60,6 +60,9 @@ shortbow_sneak_attack(ac, attack_bonus, dex_mod, sneak_dice, roll=d20, hit_bonus
 longbow_attack(ac, attack_bonus, damage_mod, roll=d20, hit_bonus=0):
     attack(ac, attack_bonus, 1 d 8, damage_mod, roll=roll, hit_bonus=hit_bonus)
 
+hand_crossbow_attack(ac, attack_bonus, damage_mod, roll=d20, hit_bonus=0):
+    attack(ac, attack_bonus, 1 d 6, damage_mod, roll=roll, hit_bonus=hit_bonus)
+
 heavy_crossbow_attack(ac, attack_bonus, damage_mod, roll=d20, hit_bonus=0):
     attack(ac, attack_bonus, 1 d 10, damage_mod, roll=roll, hit_bonus=hit_bonus)
 
@@ -74,6 +77,9 @@ great_weapon_master(ac, attack_bonus, damage_mod, roll=d20, hit_bonus=0):
 
 hunters_mark_longbow(ac, attack_bonus, damage_mod, roll=d20, hit_bonus=0):
     attack(ac, attack_bonus, 1 d 8 + 1 d 6, damage_mod, roll=roll, hit_bonus=hit_bonus)
+
+hunters_mark_hand_crossbow(ac, attack_bonus, damage_mod, roll=d20, hit_bonus=0):
+    attack(ac, attack_bonus, 1 d 6 + 1 d 6, damage_mod, roll=roll, hit_bonus=hit_bonus)
 
 hunters_mark_greatsword(ac, attack_bonus, damage_mod, roll=d20, hit_bonus=0):
     attack(ac, attack_bonus, 2 d 6 + 1 d 6, damage_mod, roll=roll, hit_bonus=hit_bonus)
@@ -99,5 +105,16 @@ fighter_attack_action(attacks, ac, attack_bonus, damage_mod, roll=d20, hit_bonus
 greatsword_attack_action(attacks, ac, attack_bonus, damage_mod, roll=d20, hit_bonus=0):
     greatsword_attack(ac, attack_bonus, damage_mod, roll=roll, hit_bonus=hit_bonus) ^ attacks
 
+hand_crossbow_attack_action(attacks, ac, attack_bonus, damage_mod, roll=d20, hit_bonus=0):
+    hand_crossbow_attack(ac, attack_bonus, damage_mod, roll=roll, hit_bonus=hit_bonus) ^ attacks
+
 longbow_attack_action(attacks, ac, attack_bonus, damage_mod, roll=d20, hit_bonus=0):
     longbow_attack(ac, attack_bonus, damage_mod, roll=roll, hit_bonus=hit_bonus) ^ attacks
+
+polearm_master_bonus_attack(ac, attack_bonus, damage_mod, roll=d20, hit_bonus=0):
+    attack(ac, attack_bonus, 1 d 4, damage_mod, roll=roll, hit_bonus=hit_bonus)
+
+polearm_master_attack(ac, attack_bonus, damage_mod, roll=d20, hit_bonus=0):
+    main_attack = halberd_attack(ac, attack_bonus, damage_mod, roll=roll, hit_bonus=hit_bonus)
+    bonus_attack = polearm_master_bonus_attack(ac, attack_bonus, damage_mod, roll=roll, hit_bonus=hit_bonus)
+    main_attack + bonus_attack

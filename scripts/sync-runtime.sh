@@ -13,7 +13,10 @@ RUNTIME_FILES=(
   diceparser.py
   executor.py
   interpreter.py
+  jsonrenderer.py
   lexer.py
+  renderplan.py
+  resultjson.py
   syntaxtree.py
 )
 
@@ -29,6 +32,7 @@ cp "$VIEWER_SOURCE" "$RUNTIME_DIR/viewer.py"
 
 cp -R "$SOURCE_DIR/stdlib/." "$RUNTIME_DIR/stdlib/"
 cp -R "$SOURCE_DIR/samples/dnd" "$RUNTIME_DIR/samples/"
+cp -R "$SOURCE_DIR/samples/sweeps" "$RUNTIME_DIR/samples/"
 
 cd "$RUNTIME_DIR"
 python - <<'PY'

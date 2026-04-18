@@ -89,7 +89,7 @@ async function handleEvaluate(params) {
     files: params.files ?? null,
     settings,
   });
-  if (payload.ok && (!payload.renders || payload.renders.length === 0)) {
+  if (payload.ok && (!payload.reports || payload.reports.length === 0)) {
     payload.render = await callBridge("render_payload", {
       result: payload.result,
       settings: { probability_mode: "percent" },

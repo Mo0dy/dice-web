@@ -66,7 +66,8 @@ test("loads a bundled sample and swaps the active file", async ({ page }) => {
 test("renders successful output into chart, raw, and json panels", async ({ page }) => {
   await openApp(page);
 
-  await expect(page.locator("#chart-output svg")).toHaveCount(1);
+  await expect(page.locator("#chart-output .plot-frame svg")).toHaveCount(1);
+  await expect(page.getByRole("button", { name: "Open Report" })).toBeDisabled();
   await page.getByRole("tab", { name: "Raw" }).click();
   await expect(page.locator("#text-output")).toContainText("Evaluation complete");
   await page.getByRole("tab", { name: "Json" }).click();

@@ -4,6 +4,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 import sys
 import tempfile
@@ -34,13 +35,12 @@ from diceparser import DiceParser, ParserError
 from executor import ExactExecutor
 from interpreter import COMPLETION_KEYWORDS, CallableEntry, Interpreter, STDLIB_ROOT
 from lexer import ASSIGN, Lexer, LexerError, SEMI
-import viewer
 
 
 DEFAULT_SOURCE_PATH = "main.dice"
 DEFAULT_ROUNDLEVEL = 6
 IMPORT_PATH_CHARS = frozenset("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_./:-")
-RUNNABLE_SAMPLE_ROOT = "dnd"
+RUNNABLE_SAMPLE_ROOTS = ("dnd", "sweeps")
 
 
 def _is_numeric(value):
@@ -423,6 +423,39 @@ def _serialize_error(error):
     }
 
 
+def _count_report_panels(report_payload):
+    if not isinstance(report_payload, dict):
+        return 0
+    report = report_payload.get("report")
+    if not isinstance(report, dict):
+        return 0
+    count = 1 if report.get("hero") is not None else 0
+    count += sum(len(row) for row in report.get("rows", ()))
+    return count
+
+
+class WebExecutor(ExactExecutor):
+    def __init__(self, render_config=None):
+        config = render_config if render_config is not None else RenderConfig()
+        super().__init__(render_config=config.with_backend("json"))
+        self.render_reports = []
+
+    def render(self, path=None, format=None, dpi=None):
+        rendered = super().render(path=path, format="json" if format is None else format, dpi=dpi)
+        if path is None:
+            payload = json.loads(rendered)
+        else:
+            with open(rendered, encoding="utf-8") as handle:
+                payload = json.load(handle)
+        self.render_reports.append(payload)
+        return "__dice_web_render__"
+
+    def set_render_backend(self, backend):
+        del backend
+        self.render_config = self.render_config.with_backend("json")
+        return "json"
+
+
 def _sample_relative_path(path):
     normalized = _normalize_workspace_path(path)
     if SAMPLE_ROOT is None:
@@ -666,8 +699,10 @@ def list_samples():
     entries = []
 
     if SAMPLE_ROOT is not None:
-        runnable_root = os.path.join(SAMPLE_ROOT, RUNNABLE_SAMPLE_ROOT)
-        if os.path.isdir(runnable_root):
+        for sample_root_name in RUNNABLE_SAMPLE_ROOTS:
+            runnable_root = os.path.join(SAMPLE_ROOT, sample_root_name)
+            if not os.path.isdir(runnable_root):
+                continue
             for root, _dirs, filenames in os.walk(runnable_root):
                 for filename in sorted(filenames):
                     if not filename.endswith(".dice"):
@@ -904,13 +939,16 @@ def evaluate(source, files=None, settings=None):
         )
         absolute_source_path = os.path.join(workspace, normalized_source_path)
         current_dir = os.path.dirname(absolute_source_path)
-        viewer.reset_render_log()
         try:
             ast = _parse_program(source, source_name=absolute_source_path)
+            executor = WebExecutor(
+                render_config=RenderConfig.from_mode("nonblocking").with_probability_mode("percent")
+            )
             interpreter = Interpreter(
                 ast,
                 current_dir=current_dir,
-                render_config=RenderConfig.from_mode("nonblocking").with_probability_mode("percent"),
+                render_config=executor.render_config,
+                executor=executor,
             )
             result = interpreter.interpret()
         except Exception as error:
@@ -920,18 +958,19 @@ def evaluate(source, files=None, settings=None):
             roundlevel=roundlevel,
             probability_mode=probability_mode,
         )
-        renders = viewer.get_render_log()
         text = _format_result_text(
             result,
             roundlevel=roundlevel,
             probability_mode=text_probability_mode,
         )
-        if renders and serialized.get("type") == "string" and serialized.get("value") == "__dice_web_render__":
-            serialized = {"type": "string", "value": "Rendered {} chart(s).".format(len(renders))}
-            text = "Rendered {} chart(s).".format(len(renders))
+        reports = list(executor.render_reports)
+        if reports and serialized.get("type") == "string" and serialized.get("value") == "__dice_web_render__":
+            panel_count = sum(_count_report_panels(report) for report in reports)
+            serialized = {"type": "string", "value": "Rendered {} plot(s).".format(panel_count)}
+            text = "Rendered {} plot(s).".format(panel_count)
         return {
             "ok": True,
             "text": text,
             "result": serialized,
-            "renders": renders,
+            "reports": reports,
         }

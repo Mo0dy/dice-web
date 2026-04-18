@@ -1,0 +1,28 @@
+# Compare concentration failure rates under the "one check total"
+# and "one check per dart" rulings for Magic Missile.
+
+import "std:dnd/core.dice"
+
+maintain_once(con_bonus): save_success(10, con_bonus) $ mean
+maintain_per_dart(darts, con_bonus): (((save_success(10, con_bonus)) ^ darts) == darts) $ mean
+
+failure_rate(rule, con_bonus):
+    split rule as name
+    | name == "one_check" -> 1 - maintain_once(con_bonus)
+    | name == "per_dart_slot1" -> 1 - maintain_per_dart(3, con_bonus)
+    | otherwise -> 1 - maintain_per_dart(5, con_bonus)
+
+con = [CON:0..9]
+results = failure_rate([RULE:"one_check", "per_dart_slot1", "per_dart_slot3"], con)
+
+one_check = failure_rate("one_check", con)
+per_dart_slot1 = failure_rate("per_dart_slot1", con)
+per_dart_slot3 = failure_rate("per_dart_slot3", con)
+
+r_title("Magic Missile concentration pressure")
+r_note("Source: reddit.com/r/dndnext/comments/164jepm")
+r_note("Online claim: one-check-per-dart makes Magic Missile much better at breaking concentration.")
+r_hero(r_compare(("One check total", one_check), ("Three darts", per_dart_slot1), ("Five darts", per_dart_slot3), x="Con save bonus", y="Concentration failure chance", title="Failure rate by concentration bonus"))
+render()
+
+results

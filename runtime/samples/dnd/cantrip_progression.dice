@@ -5,4 +5,6 @@ import "std:dnd/spells.dice"
 cantrip_damage(plan, level):
     split plan as name | name == "fire_bolt" -> fire_bolt(15, 8, level=level) $ mean | name == "sacred_flame" -> sacred_flame(15, 2, level=level) $ mean | name == "toll_the_dead" -> toll_the_dead_wounded(15, 2, level=level) $ mean | otherwise -> agonizing_eldritch_blast_by_level(15, 7, 4, level=level) $ mean
 
-render(cantrip_damage([PLAN:"fire_bolt", "sacred_flame", "toll_the_dead", "agonizing_eldritch_blast"], [LEVEL:1, 5, 11, 17]), "Character level", "Cantrip progression at fixed defenses")
+r_title("Cantrip progression at fixed defenses")
+r_auto(cantrip_damage([PLAN:"fire_bolt", "sacred_flame", "toll_the_dead", "agonizing_eldritch_blast"], [LEVEL:1, 5, 11, 17]), x="Character level")
+render()

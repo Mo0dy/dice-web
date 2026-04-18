@@ -279,6 +279,89 @@ class SweepLiteral(AST):
         return "SweepLiteral: {} => {}".format(label, self.values)
 
 
+class TupleLiteral(AST):
+    """Tuple literal."""
+
+    def __init__(self, items, token):
+        self.items = items
+        self.token = token
+
+    def __repr__(self):
+        result = "TupleLiteral"
+        for item in self.items:
+            result += '\t|'.join(('\n' + "item: " + str(item).lstrip()).splitlines(True))
+        return result
+
+
+class RecordEntry(AST):
+    """One entry inside a record literal."""
+
+    def __init__(self, key, key_type, value, token):
+        self.key = key
+        self.key_type = key_type
+        self.value = value
+        self.token = token
+
+    def __repr__(self):
+        return "RecordEntry: {}: {}".format(self.key, self.value)
+
+
+class RecordLiteral(AST):
+    """Record literal."""
+
+    def __init__(self, entries, token):
+        self.entries = entries
+        self.token = token
+
+    def __repr__(self):
+        result = "RecordLiteral"
+        for entry in self.entries:
+            result += '\t|'.join(('\n' + "entry: " + str(entry).lstrip()).splitlines(True))
+        return result
+
+
+class SweepIndexCoordinate(AST):
+    """One coordinate entry inside sweep indexing."""
+
+    def __init__(self, key, key_type, value, token):
+        self.key = key
+        self.key_type = key_type
+        self.value = value
+        self.token = token
+
+    def __repr__(self):
+        return "SweepIndexCoordinate: {}: {}".format(self.key, self.value)
+
+
+class SweepIndexFilter(AST):
+    """One axis-domain filter inside sweep indexing."""
+
+    def __init__(self, key, key_type, value, token):
+        self.key = key
+        self.key_type = key_type
+        self.value = value
+        self.token = token
+
+    def __repr__(self):
+        return "SweepIndexFilter: {} in {}".format(self.key, self.value)
+
+
+class SweepIndex(AST):
+    """Postfix sweep indexing expression."""
+
+    def __init__(self, value, clauses, token):
+        self.value = value
+        self.clauses = clauses
+        self.token = token
+
+    def __repr__(self):
+        result = "SweepIndex"
+        result += '\t|'.join(('\n' + "value: " + str(self.value).lstrip()).splitlines(True))
+        for clause in self.clauses:
+            result += '\t|'.join(('\n' + "clause: " + str(clause).lstrip()).splitlines(True))
+        return result
+
+
 class Val(AST):
     """Value end node"""
     def __init__(self, token):

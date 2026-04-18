@@ -1,0 +1,34 @@
+# Compare round-by-round damage from Spiritual Weapon + Sacred Flame
+# against Guiding Bolt on round 1 followed by Sacred Flame.
+#
+# This intentionally does not try to price Guiding Bolt's granted advantage
+# on a later ally attack; it stays on the caster's direct damage only.
+
+import "std:dnd/spells.dice"
+
+flame_round(): sacred_flame(15, 2, level=5) $ mean
+weapon_round():
+    swing = spiritual_weapon_attack(16, 7, 4) $ mean
+    swing + flame_round()
+bolt_open_round(): guiding_bolt(16, 7, slot_level=2) $ mean
+
+plan_value(plan, round):
+    split plan as name
+    | name == "spiritual_weapon" -> weapon_round() * round
+    | otherwise -> split round | == 1 -> bolt_open_round() | otherwise -> bolt_open_round() + flame_round() * (@ - 1)
+
+rounds = [ROUND:1..6]
+results = plan_value([PLAN:"spiritual_weapon", "guiding_bolt"], rounds)
+
+weapon = plan_value("spiritual_weapon", rounds)
+bolt = plan_value("guiding_bolt", rounds)
+gap = weapon - bolt
+
+r_title("Spiritual Weapon vs Guiding Bolt")
+r_note("Source: reddit.com/r/dndnext/comments/k0vw32")
+r_note("Online claim: Spiritual Weapon can take several rounds to catch up once setup and Guiding Bolt utility are counted.")
+r_hero(r_compare(("Spiritual Weapon + Sacred Flame", weapon), ("Guiding Bolt then Sacred Flame", bolt), x="Round", y="Cumulative expected damage", title="Cumulative damage by round"))
+r_row(r_auto(gap, x="Round", y="Extra expected damage", title="Spiritual Weapon line minus Guiding Bolt line"))
+render()
+
+results

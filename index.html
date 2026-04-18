@@ -95,6 +95,11 @@
           <section id="chart-panel" class="result-view chart-panel" role="tabpanel">
             <div class="section-header">
               <div class="section-title">Chart</div>
+              <div class="section-actions">
+                <button id="open-report-button" type="button" class="button" disabled>
+                  Open Report
+                </button>
+              </div>
             </div>
             <div class="chart-body">
               <div class="chart-empty" id="chart-empty">
@@ -138,6 +143,8 @@
       crossorigin="anonymous"
       referrerpolicy="no-referrer"
     ></script>
+    <script src="./vendor/d3.min.js"></script>
+    <script src="./vendor/observable-plot.umd.min.js"></script>
     <script type="module" src="./src/main.js"></script>
   </body>
 </html>

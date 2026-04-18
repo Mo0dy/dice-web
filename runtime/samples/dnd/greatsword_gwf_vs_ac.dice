@@ -6,4 +6,6 @@ greatsword = ~greatsword_attack([AC:10..22], 7, 4)
 greatsword_gwf = ~greatsword_attack_gwf([AC:10..22], 7, 4)
 power_attack = ~great_weapon_master([AC:10..22], 8, 4)
 
-render(greatsword, "Greatsword", greatsword_gwf, "Greatsword (GWF)", power_attack, "Great Weapon Master", "Armor class", "Heavy melee packages vs AC")
+r_title("Heavy melee packages vs AC")
+r_hero(r_compare(("Greatsword", greatsword), ("Greatsword (GWF)", greatsword_gwf), ("Great Weapon Master", power_attack), x="Armor class"))
+render()

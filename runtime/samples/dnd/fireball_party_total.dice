@@ -4,6 +4,9 @@ import "std:dnd/spells.dice"
 
 party_total(slot_level=3, dc=15, save_bonuses=[party:0, 2, 5, 7]):
     fireball_damage = fireball(dc, save_bonuses, slot_level=slot_level)
-    sumover("party", ~fireball_damage)
+    sumover(~fireball_damage, "party")
 
-render(party_total(slot_level=[SLOT:3..7]), "Spell slot", "Expected total fireball damage vs party")
+r_title("Fireball total damage vs party")
+r_hero(r_dist(party_total(slot_level=3), x="Total damage", title="3rd-level fireball total damage"))
+r_auto(~party_total(slot_level=[SLOT:3..7]), x="Spell slot", y="Dmg", title="Expected total damage by slot")
+render()

@@ -17,8 +17,10 @@ total_modifier_sum = ability_mod(score) ^ 6
 at_least_one_exact_target = (((score == [TARGET:3..18]) ^ 6) >= 1) $ mean
 one_score_greater_than_x = (score > [X:3..18]) $ mean
 
-render(one_score_exact, "Ability score", "Single ability score distribution")
-renderp(any_score_at_least_target, "Target score", "Chance any of 6 scores reaches target")
-render(total_modifier_sum, "Total modifier sum", "Total modifier sum across 6 scores")
-renderp(at_least_one_exact_target, "Target score", "Chance any of 6 scores equals target")
-renderp(one_score_greater_than_x, "Threshold x", "Chance a single score is greater than x")
+r_title("4d6 drop lowest ability scores")
+r_dist(one_score_exact, x="Ability score", title="Single ability score distribution")
+r_auto(any_score_at_least_target, x="Target score", title="Chance any of 6 scores reaches target")
+r_dist(total_modifier_sum, x="Total modifier sum", title="Total modifier sum across 6 scores")
+r_auto(at_least_one_exact_target, x="Target score", title="Chance any of 6 scores equals target")
+r_auto(one_score_greater_than_x, x="Threshold x", title="Chance a single score is greater than x")
+render()

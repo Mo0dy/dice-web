@@ -1,0 +1,5 @@
+# Multi-axis argmaxover returns coordinate records that can be fed back into indexing.
+study = [PLAN:1, 20] + [LEVEL:0, 5] + [AC:10, 30]
+best = argmaxover(study, ("PLAN", "LEVEL"))
+
+study[best]

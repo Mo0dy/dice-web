@@ -1,0 +1,23 @@
+# Recreate a few common D&D burst-turn and restricted-action comparisons.
+
+import "std:dnd/weapons.dice"
+import "std:dnd/spells.dice"
+
+metric_value(metric):
+    split metric as name
+    | name == "standard_agonizing_eb" -> agonizing_eldritch_blast_by_level(16, 7, 4, level=11) $ mean
+    | name == "quickened_agonizing_eb" -> (agonizing_eldritch_blast_by_level(16, 7, 4, level=11) $ mean) * 2
+    | name == "single_fireball" -> fireball(15, 2, slot_level=3) $ mean
+    | name == "double_fireball_action_surge" -> (fireball(15, 2, slot_level=3) $ mean) * 2
+    | name == "fighter_two_attacks" -> fighter_attack_action(2, 16, 7, 4) $ mean
+    | otherwise -> (fighter_attack_action(2, 16, 7, 4) $ mean) + (longsword_attack(16, 7, 4) $ mean)
+
+metrics = metric_value([METRIC:"standard_agonizing_eb", "quickened_agonizing_eb", "single_fireball", "double_fireball_action_surge", "fighter_two_attacks", "fighter_hasted_three_attacks"])
+
+r_title("Burst turns and action economy")
+r_note("Sources: reddit.com/r/dndnext/comments/y6k9az and reddit.com/r/dndnext/comments/11fhp8v")
+r_note("Online claims: Quickened Spell can double Eldritch Blast output, Action Surge can double action spells, and Haste adds one extra attack.")
+r_hero(r_auto(metrics, x="Metric", y="Expected damage", title="Burst-turn checkpoints"))
+render()
+
+metrics

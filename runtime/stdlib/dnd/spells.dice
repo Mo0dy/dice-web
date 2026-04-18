@@ -50,6 +50,9 @@ ice_knife(ac, attack_bonus, save_bonus, dc, slot_level=1, roll=d20, hit_bonus=0,
 magic_missile(slot_level=1): (d4 + 1) ^ (slot_level + 2)
 magic_missile_darts(darts): (d4 + 1) ^ darts
 
+spiritual_weapon_attack(ac, spell_attack_bonus, ability_mod, roll=d20, hit_bonus=0):
+    attack(ac, spell_attack_bonus, d8, ability_mod, roll=roll, hit_bonus=hit_bonus)
+
 burning_hands(dc, save_bonus, slot_level=1, roll=d20, save_extra=0):
     save_half(dc, save_bonus, d6 ^ (slot_level + 2), roll=roll, save_extra=save_extra)
 

@@ -22,6 +22,12 @@ from syntaxtree import (
     MeasureEntry,
     MeasureLiteral,
     SweepLiteral,
+    TupleLiteral,
+    RecordLiteral,
+    RecordEntry,
+    SweepIndex,
+    SweepIndexCoordinate,
+    SweepIndexFilter,
     Param,
     CallArg,
     LocalAssign,
@@ -283,6 +289,161 @@ class DiceParser(Parser):
         self.eat(RBRACE)
         return MeasureLiteral(entries, token)
 
+    def _record_key(self):
+        if self.current_token.type not in (ID, INTEGER):
+            self.exception(
+                "record keys must be identifiers or integers",
+                token=self.current_token,
+                hint='Use a key like PLAN: 11 or 0: 5.',
+            )
+        token = self.current_token
+        self.eat(token.type)
+        return token
+
+    def record_literal(self):
+        token = self.current_token
+        self.eat(LPAREN)
+        entries = []
+        seen = set()
+        while True:
+            key_token = self._record_key()
+            normalized_key = (key_token.type, key_token.value)
+            if normalized_key in seen:
+                self.exception(
+                    "duplicate record key {}".format(key_token.value),
+                    token=key_token,
+                    hint="Each record key may appear only once.",
+                )
+            seen.add(normalized_key)
+            self.eat(COLON)
+            entries.append(RecordEntry(key_token.value, key_token.type, self.expr(), key_token))
+            if self.current_token.type != COMMA:
+                break
+            self.eat(COMMA)
+            if self.current_token.type == RPAREN:
+                self.exception(
+                    "records do not allow trailing commas yet",
+                    token=self.current_token,
+                    hint='Write records like (PLAN: 11, LEVEL: 5).',
+                )
+            if self.current_token.type not in (ID, INTEGER) or self.peek_token.type != COLON:
+                self.exception(
+                    "cannot mix tuple and record entries",
+                    token=self.current_token,
+                    hint='Use either tuple syntax like (1, 2) or record syntax like (PLAN: 11).',
+                )
+        self.eat(RPAREN)
+        return RecordLiteral(entries, token)
+
+    def parenthesized_value(self):
+        state = self.snapshot()
+        token = self.current_token
+        self.eat(LPAREN)
+        if self.current_token.type == RPAREN:
+            self.eat(RPAREN)
+            return TupleLiteral([], token)
+        if self.current_token.type in (ID, INTEGER) and self.peek_token.type == COLON:
+            self.restore(state)
+            return self.record_literal()
+        first = self.expr()
+        if self.current_token.type == RPAREN:
+            self.eat(RPAREN)
+            return first
+        if self.current_token.type != COMMA:
+            self.exception(
+                "expected ',' or ')' in parenthesized expression",
+                token=self.current_token,
+            )
+        items = [first]
+        while self.current_token.type == COMMA:
+            self.eat(COMMA)
+            if self.current_token.type == RPAREN:
+                self.eat(RPAREN)
+                return TupleLiteral(items, token)
+            if self.current_token.type in (ID, INTEGER) and self.peek_token.type == COLON:
+                self.exception(
+                    "cannot mix tuple and record entries",
+                    token=self.current_token,
+                    hint='Use either tuple syntax like (1, 2) or record syntax like (PLAN: 11).',
+                )
+            items.append(self.expr())
+        self.eat(RPAREN)
+        return TupleLiteral(items, token)
+
+    def index_clause(self):
+        if self.current_token.type in (ID, INTEGER) and self.peek_token.type == COLON:
+            key_token = self.current_token
+            self.eat(key_token.type)
+            self.eat(COLON)
+            return SweepIndexCoordinate(key_token.value, key_token.type, self.expr(), key_token)
+        if self.current_token.type in (ID, INTEGER) and self.peek_token.type == IN:
+            key_token = self.current_token
+            self.eat(key_token.type)
+            self.eat(IN)
+            return SweepIndexFilter(key_token.value, key_token.type, self.expr(), key_token)
+        return self.expr()
+
+    def index_expr(self, value):
+        token = self.current_token
+        self.eat(LBRACK)
+        if self.current_token.type == RBRACK:
+            self.exception(
+                "sweep indexing requires at least one clause",
+                token=self.current_token,
+                hint='Write something like expr["AC"] or expr[LEVEL: 11].',
+            )
+        clauses = [self.index_clause()]
+        while self.current_token.type == COMMA:
+            self.eat(COMMA)
+            clauses.append(self.index_clause())
+        self.eat(RBRACK)
+        return SweepIndex(value, clauses, token)
+
+    def primary(self):
+        if self.current_token.type == LBRACK:
+            return self.sweep_literal()
+        elif self.current_token.type == LBRACE:
+            return self.measure_literal()
+        elif self.current_token.type == SPLIT:
+            return self.split_expr()
+        elif self.current_token.type == MATCH:
+            self.exception(
+                "'match' was replaced by 'split'",
+                token=self.current_token,
+                hint="Rewrite this as 'split ... | guard -> result'.",
+            )
+        elif self.current_token.type == LPAREN:
+            return self.parenthesized_value()
+        elif self.current_token.type == ID:
+            token = self.current_token
+            self.eat(ID)
+            if self.current_token.type == LPAREN:
+                return self.call(Val(token))
+            return Val(token)
+        elif self.current_token.type == STRING:
+            token = self.current_token
+            self.eat(STRING)
+            return Val(token)
+        elif self.current_token.type == FLOAT:
+            token = self.current_token
+            self.eat(FLOAT)
+            return Val(token)
+        elif self.current_token.type == INTEGER:
+            token = self.current_token
+            self.eat(INTEGER)
+            return Val(token)
+        else:
+            self.exception(
+                "expected an expression",
+                token=self.current_token,
+                hint="Try a number, identifier, function call, parenthesized expression, or dice expression.",
+            )
+
+    def postfix(self, node):
+        while self.current_token.type == LBRACK:
+            node = self.index_expr(node)
+        return node
+
     def _anonymous_name(self, token):
         return Val(Token(ID, "@", span=token.span))
 
@@ -406,24 +567,7 @@ class DiceParser(Parser):
         return Split(value, name, clauses, token)
 
     def factor(self):
-        if self.current_token.type == LBRACK:
-            return self.sweep_literal()
-        elif self.current_token.type == LBRACE:
-            return self.measure_literal()
-        elif self.current_token.type == SPLIT:
-            return self.split_expr()
-        elif self.current_token.type == MATCH:
-            self.exception(
-                "'match' was replaced by 'split'",
-                token=self.current_token,
-                hint="Rewrite this as 'split ... | guard -> result'.",
-            )
-        elif self.current_token.type == LPAREN:
-            self.eat(LPAREN)
-            node = self.expr()
-            self.eat(RPAREN)
-            return node
-        elif self.current_token.type == ROLL:
+        if self.current_token.type == ROLL:
             token = self.current_token
             self.eat(ROLL)
             return UnOp(self.factor(), token)
@@ -451,30 +595,7 @@ class DiceParser(Parser):
             token = self.current_token
             self.eat(AT)
             return Val(Token(ID, "@", span=token.span))
-        elif self.current_token.type == ID:
-            token = self.current_token
-            self.eat(ID)
-            if self.current_token.type == LPAREN:
-                return self.call(Val(token))
-            return Val(token)
-        elif self.current_token.type == STRING:
-            token = self.current_token
-            self.eat(STRING)
-            return Val(token)
-        elif self.current_token.type == FLOAT:
-            token = self.current_token
-            self.eat(FLOAT)
-            return Val(token)
-        elif self.current_token.type == INTEGER:
-            token = self.current_token
-            self.eat(INTEGER)
-            return Val(token)
-        else:
-            self.exception(
-                "expected an expression",
-                token=self.current_token,
-                hint="Try a number, identifier, function call, parenthesized expression, or dice expression.",
-            )
+        return self.postfix(self.primary())
 
     def call_arg(self):
         if self.current_token.type == ID and self.peek_token.type == ASSIGN:

@@ -14,6 +14,9 @@ These are user-facing example programs built on `stdlib/dnd`.
 - `magic_missile_vs_slot.dice`: show exact magic missile scaling by slot level
 - `martial_tradeoffs.dice`: compare blessing, fighting styles, power attacks, and mark effects across AC
 - `spell_slot_showdown.dice`: compare how common spells scale as slot level rises
+- `discussions/`: recreate online D&D math discussions as exact `dice` sample programs, including feat tradeoffs, action-economy break-even points, and concentration edge cases
+  Prefer keeping both the executable data surface and the rendered report in the same `.dice` file when that stays readable.
+  If a discussion report truly needs extra orchestration beyond the report DSL, use a sibling `*_report.py` beside the sample rather than centralizing that logic elsewhere.
 
 The thin one-scenario regression fixtures that used to live here now belong under `tests/`.
 The goal of this directory is readability: each file should be substantial enough to show how

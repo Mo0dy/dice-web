@@ -1,0 +1,33 @@
+# Compare a level-4 greatsword build that took +2 Strength
+# against one that took Great Weapon Master instead.
+
+import "std:dnd/weapons.dice"
+
+state_value(state, ac):
+    split state as name
+    | name == "asi" -> greatsword_attack(ac, 6, 4) $ mean
+    | name == "gwm_plain" -> greatsword_attack(ac, 5, 3) $ mean
+    | name == "gwm_power" -> great_weapon_master(ac, 5, 3) $ mean
+    | name == "asi_adv" -> greatsword_attack(ac, 6, 4, roll=d+20) $ mean
+    | name == "gwm_plain_adv" -> greatsword_attack(ac, 5, 3, roll=d+20) $ mean
+    | otherwise -> great_weapon_master(ac, 5, 3, roll=d+20) $ mean
+
+ac = [AC:10..22]
+results = state_value([STATE:"asi", "gwm_plain", "gwm_power", "asi_adv", "gwm_plain_adv", "gwm_power_adv"], ac)
+
+asi = state_value("asi", ac)
+gwm_plain = state_value("gwm_plain", ac)
+gwm_power = state_value("gwm_power", ac)
+asi_adv = state_value("asi_adv", ac)
+gwm_plain_adv = state_value("gwm_plain_adv", ac)
+gwm_power_adv = state_value("gwm_power_adv", ac)
+
+r_title("Great Weapon Master vs ASI")
+r_note("Source: rpg.stackexchange.com/questions/202251")
+r_note("Online claim: the ASI is safer without reliable advantage; GWM gets better once advantage is easy to obtain.")
+r_hero(r_compare(("ASI", asi), ("GWM plain", gwm_plain), ("GWM power", gwm_power), x="AC", y="Expected damage", title="Without advantage"))
+r_row(r_compare(("ASI adv", asi_adv), ("GWM plain adv", gwm_plain_adv), ("GWM power adv", gwm_power_adv), x="AC", y="Expected damage", title="With advantage"))
+r_wide(r_best(results, title="Best plan by AC"))
+render()
+
+results

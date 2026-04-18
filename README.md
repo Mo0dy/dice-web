@@ -37,7 +37,7 @@ Static browser playground for the `dice` language. The site runs the runtime in 
 - Pyodide runtime in a dedicated worker
 - Structured JSON evaluation payloads through the repo-local `webbridge.py`
 - Bar, line, and heatmap rendering in the browser
-- Bundled D&D sample picker with relative-import support
+- Bundled D&D and sweep sample picker with relative-import support
 - Shareable URL state
 - Local saved snippets
 

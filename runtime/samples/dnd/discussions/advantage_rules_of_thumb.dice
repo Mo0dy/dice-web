@@ -1,0 +1,22 @@
+# Recreate the memorable advantage/disadvantage facts from
+# https://www.reddit.com/r/dndnext/comments/labqox/some_helpful_probability_rules_of_thumb_for/
+
+metric_value(metric):
+    split metric as name
+    | name == "nat20_plain" -> (d20 == 20) $ mean
+    | name == "nat20_adv" -> (d+20 == 20) $ mean
+    | name == "nat1_adv" -> (d+20 == 1) $ mean
+    | name == "at_least_15_adv" -> (d+20 >= 15) $ mean
+    | name == "at_least_7_adv" -> (d+20 >= 7) $ mean
+    | name == "nat1_disadv" -> (d-20 == 1) $ mean
+    | otherwise -> (d-20 >= 15) $ mean
+
+metrics = metric_value([METRIC:"nat20_plain", "nat20_adv", "nat1_adv", "at_least_15_adv", "at_least_7_adv", "nat1_disadv", "at_least_15_disadv"])
+
+r_title("Advantage / disadvantage rules of thumb")
+r_note("Source: reddit.com/r/dndnext/comments/labqox")
+r_note("Online claim: advantage gives about 9.75% nat 20s, 0.25% nat 1s, 51% for 15+, and 91% for 7+.")
+r_hero(r_auto(metrics, x="Metric", y="Probability", title="Exact probabilities"))
+render()
+
+metrics

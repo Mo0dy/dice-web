@@ -11,4 +11,13 @@ import "std:dnd/spells.dice"
 plan_damage(plan, ac):
     split plan as name | name == "fighter_two_attacks" -> fighter_attack_action(2, ac, 7, 4) $ mean | name == "great_weapon_master" -> great_weapon_master(ac, 8, 4) $ mean | name == "paladin_smite" -> paladin_smite(ac, 8, 4, slot_level=3) $ mean | name == "hunters_mark_longbow" -> hunters_mark_longbow(ac, 9, 4) $ mean | otherwise -> agonizing_eldritch_blast_by_level(ac, 7, 4, level=11) $ mean
 
-plan_damage([PLAN:"fighter_two_attacks", "great_weapon_master", "paladin_smite", "hunters_mark_longbow", "agonizing_eldritch_blast"], [AC:10..22])
+fighter_two_attacks = fighter_attack_action(2, [AC:10..22], 7, 4) $ mean
+great_weapon_master_line = great_weapon_master([AC:10..22], 8, 4) $ mean
+paladin_smite_line = paladin_smite([AC:10..22], 8, 4, slot_level=3) $ mean
+hunters_mark_longbow_line = hunters_mark_longbow([AC:10..22], 9, 4) $ mean
+agonizing_eldritch_blast_line = agonizing_eldritch_blast_by_level([AC:10..22], 7, 4, level=11) $ mean
+
+r_title("Strategy heatmap")
+r_hero(r_compare(("Fighter", fighter_two_attacks), ("GWM", great_weapon_master_line), ("Smite", paladin_smite_line), ("Hunter's Mark", hunters_mark_longbow_line), ("Agonizing Blast", agonizing_eldritch_blast_line), x="AC", y="Dmg", title="Expected damage by armor class"))
+r_best(plan_damage([PLAN:"fighter_two_attacks", "great_weapon_master", "paladin_smite", "hunters_mark_longbow", "agonizing_eldritch_blast"], [AC:10..22]), title="Winner and margin by armor class")
+render()

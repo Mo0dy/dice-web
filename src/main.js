@@ -9,6 +9,7 @@ import {
   normalizeFileName,
   workspacePathForImport,
 } from "./workspace.js";
+import { renderLegacyCharts, renderStackedReports, saveReports } from "./reporting.js";
 
 const DEFAULT_SOURCE = `import "std:dnd/core"
 
@@ -37,6 +38,7 @@ const diagnosticPanel = document.querySelector("#diagnostic-panel");
 const diagnosticOutput = document.querySelector("#diagnostic-output");
 const chartOutput = document.querySelector("#chart-output");
 const chartEmpty = document.querySelector("#chart-empty");
+const openReportButton = document.querySelector("#open-report-button");
 const chartPanel = document.querySelector("#chart-panel");
 const resultsPanel = document.querySelector(".results-panel");
 const editorSurface = document.querySelector("#editor");
@@ -1982,6 +1984,8 @@ function setOutputs(payload) {
     textOutput.textContent = "";
     jsonOutput.textContent = "";
     chartOutput.replaceChildren();
+    saveReports([]);
+    openReportButton.disabled = true;
     chartEmpty.hidden = true;
     setResultState("error");
     return;
@@ -1992,11 +1996,20 @@ function setOutputs(payload) {
   textOutput.textContent = payload.text ?? "";
   jsonOutput.textContent = JSON.stringify(payload.result, null, 2);
   setResultState(payload.result.type);
-  const charts = payload.renders && payload.renders.length ? payload.renders : payload.render;
-  renderCharts(charts);
-  if (charts) {
+  const reports = Array.isArray(payload.reports) ? payload.reports : [];
+  const hasReports = reports.length > 0 && renderStackedReports(reports, chartOutput);
+  if (hasReports) {
+    saveReports(reports);
+    openReportButton.disabled = false;
     chartEmpty.hidden = true;
+    return;
   }
+
+  saveReports([]);
+  openReportButton.disabled = true;
+  const charts = payload.render;
+  const hasCharts = renderLegacyCharts(charts, chartOutput);
+  chartEmpty.hidden = hasCharts;
 }
 
 async function evaluateSource() {
@@ -2015,6 +2028,8 @@ async function evaluateSource() {
     diagnosticPanel.hidden = false;
     diagnosticOutput.textContent = error.message;
     chartOutput.replaceChildren();
+    saveReports([]);
+    openReportButton.disabled = true;
     chartEmpty.hidden = true;
     setResultState("error");
   }
@@ -2102,6 +2117,14 @@ closeAllButton.addEventListener("click", () => {
   resetWorkspace();
 });
 
+openReportButton.addEventListener("click", () => {
+  if (openReportButton.disabled) {
+    return;
+  }
+  const reportUrl = new URL("./report.html", window.location.href);
+  window.open(reportUrl.toString(), "_blank", "noopener");
+});
+
 sampleDialog.addEventListener("close", async () => {
   if (sampleDialog.returnValue === "cancel") {
     return;
@@ -2159,6 +2182,7 @@ setActiveResultTab("charts");
 textOutput.textContent = "";
 jsonOutput.textContent = "";
 chartOutput.replaceChildren();
+openReportButton.disabled = true;
 chartEmpty.hidden = false;
 
 async function boot() {

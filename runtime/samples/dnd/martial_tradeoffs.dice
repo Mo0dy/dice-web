@@ -5,4 +5,14 @@ import "std:dnd/weapons.dice"
 martial_damage(plan, ac):
     split plan as name | name == "longsword" -> longsword_attack(ac, 7, 4) $ mean | name == "blessed_longsword" -> longsword_attack(ac, 7, 4, hit_bonus=d4) $ mean | name == "greatsword_gwf" -> greatsword_attack_gwf(ac, 7, 4) $ mean | name == "great_weapon_master" -> great_weapon_master(ac, 8, 4) $ mean | name == "reckless_gwm" -> great_weapon_master(ac, 8, 4, roll=d+20) $ mean | otherwise -> hunters_mark_longbow(ac, 9, 4) $ mean
 
-render(martial_damage([PLAN:"longsword", "blessed_longsword", "greatsword_gwf", "great_weapon_master", "reckless_gwm", "hunters_mark_longbow"], [AC:10..22]), "Armor class", "Martial tradeoffs by armor class")
+longsword_line = longsword_attack([AC:10..22], 7, 4) $ mean
+blessed_longsword_line = longsword_attack([AC:10..22], 7, 4, hit_bonus=d4) $ mean
+greatsword_gwf_line = greatsword_attack_gwf([AC:10..22], 7, 4) $ mean
+great_weapon_master_line = great_weapon_master([AC:10..22], 8, 4) $ mean
+reckless_gwm_line = great_weapon_master([AC:10..22], 8, 4, roll=d+20) $ mean
+hunters_mark_longbow_line = hunters_mark_longbow([AC:10..22], 9, 4) $ mean
+
+r_title("Martial tradeoffs by armor class")
+r_hero(r_compare(("Longsword", longsword_line), ("Blessed", blessed_longsword_line), ("GWF", greatsword_gwf_line), ("GWM", great_weapon_master_line), ("Reckless GWM", reckless_gwm_line), ("Hunter's Mark", hunters_mark_longbow_line), x="AC", y="Dmg", title="Expected damage by armor class"))
+r_best(martial_damage([PLAN:"longsword", "blessed_longsword", "greatsword_gwf", "great_weapon_master", "reckless_gwm", "hunters_mark_longbow"], [AC:10..22]), title="Winner map by armor class")
+render()

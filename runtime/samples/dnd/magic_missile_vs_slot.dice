@@ -2,4 +2,6 @@
 
 import "std:dnd/spells.dice"
 
-render(~magic_missile([SLOT:1..9]), "Spell slot", "Magic missile expected damage by slot")
+r_title("Magic missile expected damage by slot")
+r_auto(~magic_missile([SLOT:1..9]), x="Spell slot", y="Dmg")
+render()

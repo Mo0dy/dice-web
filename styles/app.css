@@ -101,6 +101,10 @@ pre {
   text-decoration: underline;
 }
 
+.report-page {
+  overflow: auto;
+}
+
 .editor-panel,
 .results-panel,
 .subpanel,
@@ -140,7 +144,8 @@ pre {
 
 .toolbar-row,
 .toolbar-group,
-.results-header {
+.results-header,
+.section-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
@@ -191,6 +196,12 @@ select:disabled {
 .button-primary:hover {
   background: var(--accent-strong);
   border-color: var(--accent-strong);
+}
+
+.section-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
 }
 
 .button-danger {
@@ -570,6 +581,20 @@ select:focus-visible,
   display: grid;
 }
 
+.plot-frame {
+  padding: 0.55rem;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-small);
+  overflow: auto hidden;
+}
+
+.plot-frame > figure,
+.plot-frame > svg {
+  display: block;
+  max-width: 100%;
+}
+
 .chart-svg {
   width: 100%;
   height: auto;
@@ -736,6 +761,66 @@ select:focus-visible,
   cursor: pointer;
 }
 
+.report-shell {
+  width: min(1180px, calc(100vw - 2rem));
+  margin: 0 auto;
+  padding: 1rem 0 2rem;
+}
+
+.report-section {
+  display: grid;
+  gap: 1rem;
+  margin-top: 1.1rem;
+}
+
+.report-title {
+  margin: 0;
+  font-size: 1.3rem;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.report-grid {
+  display: grid;
+  gap: 1rem;
+}
+
+.report-grid--single {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.report-grid--pair {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.report-panel {
+  padding: 0.1rem 0;
+}
+
+.report-panel-grid {
+  display: grid;
+  gap: 0.85rem;
+}
+
+.report-panel-grid--stack {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.report-notes {
+  display: grid;
+  gap: 0.45rem;
+  padding: 0.8rem 0.9rem;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-small);
+}
+
+.report-notes p {
+  margin: 0;
+  color: var(--ink-muted);
+  font-size: 0.88rem;
+}
+
 @media (max-width: 1100px) {
   .app-shell {
     width: min(100vw - 1rem, 1380px);
@@ -749,6 +834,10 @@ select:focus-visible,
     grid-template-rows: auto auto minmax(16rem, 1fr);
     border-left: 0;
     border-top: 1px solid var(--border);
+  }
+
+  .report-grid--pair {
+    grid-template-columns: minmax(0, 1fr);
   }
 }
 

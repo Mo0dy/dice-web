@@ -46,6 +46,7 @@ class ParameterSpec:
     name: str
     default_value: object = MISSING
     annotation: object = None
+    keyword_only: bool = False
 
     @property
     def has_default(self):
@@ -66,13 +67,29 @@ class HostFunction:
     function: object
     parameters: tuple[ParameterSpec, ...] = ()
     variadic: bool = False
+    variadic_keyword_arguments: bool = False
     sweep_mode: bool = False
 
 
 def validate_runtime_value(value):
     if value is None:
         return value
-    if isinstance(value, (int, float, str, diceengine.SweepValues, diceengine.FiniteMeasure, diceengine.Distribution, diceengine.Sweep)):
+    if isinstance(
+        value,
+        (
+            int,
+            float,
+            str,
+            diceengine.TupleValue,
+            diceengine.RecordValue,
+            diceengine.SweepValues,
+            diceengine.FiniteMeasure,
+            diceengine.Distribution,
+            diceengine.Sweep,
+            diceengine.ChartSpec,
+            diceengine.ReportSpec,
+        ),
+    ):
         return value
     raise Exception("Unsupported host value type {}".format(type(value)))
 
@@ -230,6 +247,7 @@ class Executor(ABC):
     def __init__(self, render_config=None):
         self.functions = {}
         self.render_config = render_config if render_config is not None else diceengine.RenderConfig()
+        self.pending_report = diceengine.ReportSpec()
         self._register_builtin_functions()
 
     def _callable_parameters(self, function, variadic=False):
@@ -244,7 +262,16 @@ class Executor(ABC):
     def _annotation_requests_sweep(self, function):
         return _annotation_requests_sweep(function)
 
-    def _register_host_function(self, function, name=None, variadic=False, sweep_mode=None, require_decorated=False):
+    def _register_host_function(
+        self,
+        function,
+        name=None,
+        variadic=False,
+        sweep_mode=None,
+        require_decorated=False,
+        parameters=None,
+        variadic_keyword_arguments=False,
+    ):
         metadata = get_dicefunction_metadata(function)
         if require_decorated and metadata is None:
             raise Exception("Python functions must be decorated with @dicefunction to be registered")
@@ -253,12 +280,13 @@ class Executor(ABC):
             raise Exception("Python functions must have a name")
         if callable_name in self.functions:
             raise Exception("Duplicate function definition for {}".format(callable_name))
-        parameters = self._callable_parameters(function, variadic=variadic)
+        parameters = parameters if parameters is not None else self._callable_parameters(function, variadic=variadic)
         entry = HostFunction(
             callable_name,
             function=function,
             parameters=parameters,
             variadic=variadic,
+            variadic_keyword_arguments=variadic_keyword_arguments,
             sweep_mode=self._annotation_requests_sweep(function) if sweep_mode is None else sweep_mode,
         )
         self.functions[callable_name] = entry
@@ -298,13 +326,53 @@ class Executor(ABC):
             "shape",
             "repeat_sum",
             "sumover",
+            "meanover",
+            "maxover",
+            "argmaxover",
             "total",
             "set_render_mode",
+            "set_render_backend",
             "set_probability_mode",
+            "r_title",
+            "r_note",
+            "r_hero",
+            "r_wide",
+            "r_narrow",
         ]:
             self._register_host_function(getattr(self, name), name=name, sweep_mode=True)
-        self._register_host_function(self.render, name="render", variadic=True, sweep_mode=True)
-        self._register_host_function(self.renderp, name="renderp", variadic=True, sweep_mode=True)
+        self._register_host_function(
+            self.r_row,
+            name="r_row",
+            variadic=True,
+            sweep_mode=True,
+        )
+        chart_kw_parameters = (
+            ParameterSpec("x", default_value=None, keyword_only=True),
+            ParameterSpec("y", default_value=None, keyword_only=True),
+            ParameterSpec("title", default_value=None, keyword_only=True),
+        )
+        compare_kw_parameters = (
+            ParameterSpec("x", default_value=None, keyword_only=True),
+            ParameterSpec("y", default_value=None, keyword_only=True),
+            ParameterSpec("title", default_value=None, keyword_only=True),
+        )
+        self._register_host_function(self.r_auto, name="r_auto", sweep_mode=True, parameters=chart_kw_parameters, variadic=True, variadic_keyword_arguments=True)
+        self._register_host_function(self.r_dist, name="r_dist", sweep_mode=True, parameters=chart_kw_parameters, variadic=True, variadic_keyword_arguments=True)
+        self._register_host_function(self.r_cdf, name="r_cdf", sweep_mode=True, parameters=chart_kw_parameters, variadic=True, variadic_keyword_arguments=True)
+        self._register_host_function(self.r_surv, name="r_surv", sweep_mode=True, parameters=chart_kw_parameters, variadic=True, variadic_keyword_arguments=True)
+        self._register_host_function(self.r_compare, name="r_compare", sweep_mode=True, parameters=compare_kw_parameters, variadic=True, variadic_keyword_arguments=True)
+        self._register_host_function(self.r_diff, name="r_diff", sweep_mode=True, parameters=compare_kw_parameters, variadic=True, variadic_keyword_arguments=True)
+        self._register_host_function(self.r_best, name="r_best", sweep_mode=True, parameters=chart_kw_parameters, variadic=True, variadic_keyword_arguments=True)
+        self._register_host_function(
+            self.render,
+            name="render",
+            sweep_mode=True,
+            parameters=(
+                ParameterSpec("path", default_value=None),
+                ParameterSpec("format", default_value=None),
+                ParameterSpec("dpi", default_value=None),
+            ),
+        )
 
     def register_function(self, function, name=None):
         return self._register_host_function(function, name=name, require_decorated=True)
@@ -312,21 +380,95 @@ class Executor(ABC):
     def repeat_sum(self, count, value):
         return diceengine.repeat_sum_with(self.add, count, value)
 
-    def sumover(self, axis_name: str, value: diceengine.Sweep[Any]) -> diceengine.Sweep[Any]:
-        return diceengine.sumover_with(self.add, axis_name, value)
+    def sumover(self, value, axes=None):
+        return diceengine.sumover_with(self.add, value, diceengine._OMITTED if axes is None else axes)
+
+    def meanover(self, value, axes=None):
+        return diceengine.meanover(value, diceengine._OMITTED if axes is None else axes)
+
+    def maxover(self, value, axes=None):
+        return diceengine.maxover(value, diceengine._OMITTED if axes is None else axes)
+
+    def argmaxover(self, value, axes=None):
+        return diceengine.argmaxover(value, diceengine._OMITTED if axes is None else axes)
 
     def total(self, value: diceengine.Sweep[Any]) -> diceengine.Sweep[Any]:
         return diceengine.total_with(self.add, value)
 
-    def render(self, *args):
-        return diceengine.render(*args, render_config=self.render_config)
+    def _normalize_chart_arguments(self, args, x=None, y=None, title=None):
+        if len(args) != 1:
+            raise Exception("chart constructors expect exactly one expression")
+        return args[0], x, y, title
 
-    def renderp(self, *args):
-        return diceengine.renderp(*args, render_config=self.render_config)
+    def r_auto(self, *args, x=None, y=None, title=None):
+        value, x, y, title = self._normalize_chart_arguments(args, x=x, y=y, title=title)
+        return diceengine.ChartSpec("auto", payload=value, x_label=x, y_label=y, title=title)
+
+    def r_dist(self, *args, x=None, y=None, title=None):
+        value, x, y, title = self._normalize_chart_arguments(args, x=x, y=y, title=title)
+        return diceengine.ChartSpec("dist", payload=value, x_label=x, y_label=y, title=title)
+
+    def r_cdf(self, *args, x=None, y=None, title=None):
+        value, x, y, title = self._normalize_chart_arguments(args, x=x, y=y, title=title)
+        return diceengine.ChartSpec("cdf", payload=value, x_label=x, y_label=y, title=title)
+
+    def r_surv(self, *args, x=None, y=None, title=None):
+        value, x, y, title = self._normalize_chart_arguments(args, x=x, y=y, title=title)
+        return diceengine.ChartSpec("surv", payload=value, x_label=x, y_label=y, title=title)
+
+    def r_compare(self, *entries, x=None, y=None, title=None):
+        return diceengine.ChartSpec("compare", payload=tuple(entries), x_label=x, y_label=y, title=title)
+
+    def r_diff(self, *entries, x=None, y=None, title=None):
+        return diceengine.ChartSpec("diff", payload=tuple(entries), x_label=x, y_label=y, title=title)
+
+    def r_best(self, *args, x=None, y=None, title=None):
+        value, x, y, title = self._normalize_chart_arguments(args, x=x, y=y, title=title)
+        return diceengine.ChartSpec("best", payload=value, x_label=x, y_label=y, title=title)
+
+    def r_title(self, text):
+        self.pending_report = diceengine.report_set_title(self.pending_report, text)
+        return None
+
+    def r_note(self, text):
+        self.pending_report = diceengine.report_add_note(self.pending_report, text)
+        return None
+
+    def r_hero(self, chart):
+        self.pending_report = diceengine.report_set_hero(self.pending_report, chart)
+        return None
+
+    def r_row(self, *charts):
+        self.pending_report = diceengine.report_add_row(self.pending_report, charts)
+        return None
+
+    def r_wide(self, chart):
+        return diceengine.chart_with_width(chart, "wide")
+
+    def r_narrow(self, chart):
+        return diceengine.chart_with_width(chart, "narrow")
+
+    def append_chart(self, chart):
+        self.pending_report = diceengine.report_append_chart(self.pending_report, chart)
+
+    def render(self, path=None, format=None, dpi=None):
+        output_path = diceengine.render_report(
+            self.pending_report,
+            render_config=self.render_config,
+            path=path,
+            format=format,
+            dpi=dpi,
+        )
+        self.pending_report = diceengine.ReportSpec()
+        return output_path
 
     def set_render_mode(self, mode):
         self.render_config = self.render_config.with_mode(mode)
         return self.render_config.mode_name()
+
+    def set_render_backend(self, backend):
+        self.render_config = self.render_config.with_backend(backend)
+        return self.render_config.backend
 
     def set_probability_mode(self, mode):
         self.render_config = self.render_config.with_probability_mode(mode)
@@ -342,6 +484,18 @@ class Executor(ABC):
 
     @abstractmethod
     def mean(self, value):
+        raise NotImplementedError
+
+    @abstractmethod
+    def meanover(self, value, axes=None):
+        raise NotImplementedError
+
+    @abstractmethod
+    def maxover(self, value, axes=None):
+        raise NotImplementedError
+
+    @abstractmethod
+    def argmaxover(self, value, axes=None):
         raise NotImplementedError
 
     @abstractmethod
@@ -462,6 +616,15 @@ class ExactExecutor(Executor):
 
     def mean(self, value):
         return diceengine.mean(value)
+
+    def meanover(self, value, axes=None):
+        return diceengine.meanover(value, diceengine._OMITTED if axes is None else axes)
+
+    def maxover(self, value, axes=None):
+        return diceengine.maxover(value, diceengine._OMITTED if axes is None else axes)
+
+    def argmaxover(self, value, axes=None):
+        return diceengine.argmaxover(value, diceengine._OMITTED if axes is None else axes)
 
     def var(self, value):
         return diceengine.var(value)

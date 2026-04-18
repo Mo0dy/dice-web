@@ -1,0 +1,29 @@
+# Compare a level-4 halberd build that took +2 Strength
+# against one that took Polearm Master instead.
+
+import "std:dnd/weapons.dice"
+
+state_value(state, ac):
+    split state as name
+    | name == "asi" -> halberd_attack(ac, 6, 4) $ mean
+    | name == "pam" -> polearm_master_attack(ac, 5, 3) $ mean
+    | name == "asi_adv" -> halberd_attack(ac, 6, 4, roll=d+20) $ mean
+    | otherwise -> polearm_master_attack(ac, 5, 3, roll=d+20) $ mean
+
+ac = [AC:10..22]
+results = state_value([STATE:"asi", "pam", "asi_adv", "pam_adv"], ac)
+
+asi = state_value("asi", ac)
+pam = state_value("pam", ac)
+asi_adv = state_value("asi_adv", ac)
+pam_adv = state_value("pam_adv", ac)
+
+r_title("Polearm Master vs ASI")
+r_note("Source: rpg.stackexchange.com/questions/202307")
+r_note("Online claim: the extra butt-end attack can outperform an early +2 Strength depending on assumptions.")
+r_hero(r_compare(("ASI", asi), ("Polearm Master", pam), x="AC", y="Expected damage", title="Without advantage"))
+r_row(r_compare(("ASI adv", asi_adv), ("Polearm Master adv", pam_adv), x="AC", y="Expected damage", title="With advantage"))
+r_wide(r_best(results, title="Best plan by AC"))
+render()
+
+results

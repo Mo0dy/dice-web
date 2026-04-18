@@ -5,4 +5,13 @@ import "std:dnd/spells.dice"
 slot_damage(plan, slot_level=3):
     split plan as name | name == "chromatic_orb" -> chromatic_orb(15, 7, slot_level=slot_level) $ mean | name == "guiding_bolt" -> guiding_bolt(15, 7, slot_level=slot_level) $ mean | name == "scorching_ray" -> scorching_ray(15, 7, slot_level=slot_level) $ mean | name == "magic_missile" -> magic_missile(slot_level=slot_level) $ mean | otherwise -> fireball(15, 2, slot_level=slot_level) $ mean
 
-render(slot_damage([PLAN:"chromatic_orb", "guiding_bolt", "scorching_ray", "magic_missile", "fireball"], slot_level=[SLOT:3, 4, 5]), "Spell slot", "Expected damage by spell slot")
+chromatic_orb_line = chromatic_orb(15, 7, slot_level=[SLOT:3, 4, 5]) $ mean
+guiding_bolt_line = guiding_bolt(15, 7, slot_level=[SLOT:3, 4, 5]) $ mean
+scorching_ray_line = scorching_ray(15, 7, slot_level=[SLOT:3, 4, 5]) $ mean
+magic_missile_line = magic_missile(slot_level=[SLOT:3, 4, 5]) $ mean
+fireball_line = fireball(15, 2, slot_level=[SLOT:3, 4, 5]) $ mean
+
+r_title("Expected damage by spell slot")
+r_hero(r_compare(("Chromatic Orb", chromatic_orb_line), ("Guiding Bolt", guiding_bolt_line), ("Scorching Ray", scorching_ray_line), ("Magic Missile", magic_missile_line), ("Fireball", fireball_line), x="Spell slot", y="Dmg", title="Expected damage by spell slot"))
+r_best(slot_damage([PLAN:"chromatic_orb", "guiding_bolt", "scorching_ray", "magic_missile", "fireball"], slot_level=[SLOT:3, 4, 5]), title="Winner map by spell slot")
+render()

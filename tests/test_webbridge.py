@@ -47,10 +47,18 @@ class WebBridgeTest(unittest.TestCase):
         self.assertEqual(render["series"][0]["values"], [15.0, 10.0, 5.0])
 
     def test_render_statements_use_percent_probabilities(self):
-        payload = webbridge.evaluate("render(d2)")
+        payload = webbridge.evaluate('r_dist(d2, x="Outcome"); render()')
         self.assertTrue(payload["ok"])
-        self.assertEqual(payload["renders"][0]["spec"]["y_label"], "Probability (%)")
-        self.assertEqual(payload["renders"][0]["series"][0]["values"], [50.0, 50.0])
+        report = payload["reports"][0]["report"]
+        panel = report["rows"][0][0]
+        self.assertEqual(panel["x_label"], "Outcome")
+        self.assertEqual(
+            panel["payload"]["cells"][0]["distribution"],
+            [
+                {"outcome": 1, "probability": 50.0},
+                {"outcome": 2, "probability": 50.0},
+            ],
+        )
 
     def test_list_symbols_exposes_builtins_and_stdlib(self):
         symbols = webbridge.list_symbols()
@@ -102,6 +110,7 @@ class WebBridgeTest(unittest.TestCase):
         paths = {sample["path"] for sample in samples}
         self.assertIn("dnd/ability_scores_4d6h3.dice", paths)
         self.assertIn("dnd/combat_profiles.dice", paths)
+        self.assertIn("sweeps/indexing_basics.dice", paths)
         self.assertIn("std:dnd/core", paths)
         self.assertNotIn("dnd/lib/weapons.dice", paths)
 
@@ -110,6 +119,12 @@ class WebBridgeTest(unittest.TestCase):
         self.assertEqual(sample["source_path"], "dnd/combat_profiles.dice")
         self.assertIn("dnd/ability_scores_4d6h3.dice", sample["files"])
         self.assertIn('import "std:dnd/weapons.dice"', sample["source"])
+
+    def test_load_sweep_sample_returns_workspace_package(self):
+        sample = webbridge.load_sample("sweeps/indexing_basics.dice")
+        self.assertEqual(sample["source_path"], "sweeps/indexing_basics.dice")
+        self.assertIn("sweeps/adaptive_best_choice.dice", sample["files"])
+        self.assertIn("study[focus", sample["source"])
 
     def test_load_stdlib_returns_workspace_package(self):
         sample = webbridge.load_sample("std:dnd/spells")
@@ -138,9 +153,12 @@ class WebBridgeTest(unittest.TestCase):
             settings={"source_path": sample["source_path"]},
         )
         self.assertTrue(payload["ok"], payload.get("error"))
-        self.assertEqual(payload["text"], "Rendered 5 chart(s).")
-        self.assertEqual(len(payload["renders"]), 5)
-        self.assertEqual(payload["renders"][0]["title"], "Single ability score distribution")
+        self.assertEqual(payload["text"], "Rendered 5 plot(s).")
+        self.assertEqual(len(payload["reports"]), 1)
+        report = payload["reports"][0]["report"]
+        self.assertEqual(report["title"], "4d6 drop lowest ability scores")
+        self.assertEqual(len(report["rows"]), 3)
+        self.assertEqual(report["rows"][0][0]["title"], "Single ability score distribution")
 
 
 if __name__ == "__main__":

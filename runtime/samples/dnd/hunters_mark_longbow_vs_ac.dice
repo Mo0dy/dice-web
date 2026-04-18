@@ -6,4 +6,6 @@ longbow = ~longbow_attack([AC:10..22], 9, 4)
 hunters_mark = ~hunters_mark_longbow([AC:10..22], 9, 4)
 sharpshooter_shot = ~sharpshooter([AC:10..22], 8, 4)
 
-render(longbow, "Longbow", hunters_mark, "Hunter's Mark", sharpshooter_shot, "Sharpshooter", "Armor class", "Ranged damage packages vs AC")
+r_title("Ranged damage packages vs AC")
+r_hero(r_compare(("Longbow", longbow), ("Hunter's Mark", hunters_mark), ("Sharpshooter", sharpshooter_shot), x="Armor class"))
+render()
